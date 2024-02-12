@@ -186,19 +186,21 @@ module E = struct
 end
 
 module Step_constant = struct
-  let mk source sender self amount : expr =
+  let mk source sender self amount level : expr =
     E.mk_record
       [
         (qualid [ "source" ], source);
         (qualid [ "sender" ], sender);
         (qualid [ "self" ], self);
         (qualid [ "amount" ], amount);
+        (qualid [ "level" ], level);
       ]
 
   let source st : expr = eapp (qualid [ "source" ]) [ st ]
   let sender st : expr = eapp (qualid [ "sender" ]) [ st ]
   let self st : expr = eapp (qualid [ "self" ]) [ st ]
   let amount st : expr = eapp (qualid [ "amount" ]) [ st ]
+  let level st : expr = eapp (qualid [ "level" ]) [ st ]
 end
 
 let rec sort_wf (s : Sort.t) (p : expr) : term =
@@ -390,7 +392,8 @@ module Generator (D : Desc) = struct
                                 mk
                                   (source @@ E.var_of_binder st)
                                   (self @@ E.var_of_binder st)
-                                  (E.mk_var dst) (E.mk_var amt))
+                                  (E.mk_var dst) (E.mk_var amt)
+                                  (level @@ E.var_of_binder st))
                             in
                             dispatch_transfer ctx st (E.mk_var gp) );
                      ],
