@@ -65,14 +65,16 @@ type step =
   { source: address;
     sender: address;
     self: address;
-    amount: mutez
+    amount: mutez;
+    level: nat
   }
 
-function mk_step (source : address) (sender : address) (self : address) (amount : mutez) : step =
-  { source= source;
+function mk_step (source : address) (sender : address) (self : address) (amount : mutez) (level : nat) : step =
+  { source= source; 
     sender= sender;
     self= self;
-    amount= amount }
+    amount= amount;
+    level= level }
 
 predicate step_wf (st : step) =
   st.amount >= 0
