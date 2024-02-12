@@ -24,22 +24,25 @@ scope Preambles
 
   type or 'a 'b = Left 'a | Right 'b
 
-  type step = (address, address, address, mutez)
+  type step = (address, address, address, mutez, nat)
 
-  function mk_step (source : address) (sender : address) (self : address) (amount : mutez) : step =
-    (source, sender, self, amount)
+  function mk_step (source : address) (sender : address) (self : address) (amount : mutez) (level : nat) : step =
+    (source, sender, self, amount, level)
 
   function source (st : step) : address =
-    match st with x, _, _, _ -> x end
+    match st with x, _, _, _ ,_ -> x end
 
   function sender (st : step) : address =
-    match st with _, x, _, _ -> x end
+    match st with _, x, _, _ ,_ -> x end
 
   function self (st : step) : address =
-    match st with _, _, x, _ -> x end
+    match st with _, _, x, _ ,_ -> x end
 
   function amount (st : step) : mutez =
-    match st with  _, _, _, x -> x end
+    match st with _, _, _, x ,_ -> x end
+
+  function level (st : step) : nat =
+    match st with _, _, _, _, x -> x end
 
   predicate st_wf (st : step) =
     st.amount >= 0
@@ -248,7 +251,7 @@ scope Lqt
     allowances : map (address, address) (option nat);
     admin : address;
     total_supply : nat;
-    }
+  }
 
   predicate pre (c : ctx) = pre_inv c
 
