@@ -153,9 +153,15 @@ let check_storage_type_decl (td : Ptree.type_decl) : Ptree.type_decl iresult =
   let* () =
     error_unless (td.td_vis = Ptree.Public) ~err:(error_of_fmt ~loc "public")
   in
-  let* () = error_unless (td.td_mut = false) ~err:(error_of_fmt ~loc "immutable") in
-  let* () = error_unless (td.td_inv = []) ~err:(error_of_fmt ~loc "pure record") in
-  let* () = error_unless (td.td_wit = None) ~err:(error_of_fmt ~loc "pure record") in
+  let* () =
+    error_unless (td.td_mut = false) ~err:(error_of_fmt ~loc "immutable")
+  in
+  let* () =
+    error_unless (td.td_inv = []) ~err:(error_of_fmt ~loc "pure record")
+  in
+  let* () =
+    error_unless (td.td_wit = None) ~err:(error_of_fmt ~loc "pure record")
+  in
   match td.td_def with
   | TDalias pty ->
       let* _ =
@@ -197,14 +203,18 @@ let parse_contract loc id ds =
         | Ptree.Dtype [ td ] when td.td_ident.id_str = Id.storage_ty.id_str ->
             let* () =
               error_unless (ostore = None)
-                ~err:(error_of_fmt ~loc:td.td_loc "multiple declaration of storage type")
+                ~err:
+                  (error_of_fmt ~loc:td.td_loc
+                     "multiple declaration of storage type")
             in
             let* store = check_storage_type_decl td in
             return (Some store, okont, oeps, opre, opost)
         | Dlet (id, _, _, e) when id.id_str = Id.upper_ops.id_str ->
             let* () =
               error_unless (okont = None)
-                ~err:(error_of_fmt ~loc:id.id_loc "multiple declaration of upper_ops")
+                ~err:
+                  (error_of_fmt ~loc:id.id_loc
+                     "multiple declaration of upper_ops")
             in
             let* kont = parse_upper_ops e in
             return (ostore, Some kont, oeps, opre, opost)
@@ -261,7 +271,8 @@ let parse_unknown (loc : Loc.position) (ds : Ptree.decl list) =
                 ld.ld_params
             in
             return @@ StringMap.add ld.ld_ident.id_str s m
-        | _ -> error_with ~loc "invalid format: predicate declaration is expected")
+        | _ ->
+            error_with ~loc "invalid format: predicate declaration is expected")
       StringMap.empty ds
   in
   let* oep, opre, opost =

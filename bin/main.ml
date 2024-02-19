@@ -12,9 +12,9 @@ let usage = "icon <file>"
 let () =
   Arg.parse []
     (fun file ->
-       let f = Gen_mlw.parse_file file in
-       Format.printf "%a@." (Mlw_printer.pp_mlw_file ~attr:true)
-       @@ Gen_mlw.from_mlw f)
+      let f = Gen_mlw.parse_file file in
+      Format.printf "%a@." (Mlw_printer.pp_mlw_file ~attr:true)
+      @@ Gen_mlw.from_mlw f)
     usage
 
 (* let mlw_file = Gen_mlw.file @@ Translator.parse_file "test/dexter_c.mlw" *)

@@ -13,4 +13,8 @@
    (>= "4.14"))
   (why3
    (>= "1.7.0"))
-  re))
+  re
+  (ocamlformat
+   (and
+    :with-test
+    (= "0.26.1")))))

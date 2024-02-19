@@ -3,6 +3,8 @@ name: Builds, tests & co
 on:
 #  pull_request:
   push:
+  pull_request:
+    branches: [ master ]
 #  schedule:
 #    # Prime the caches every Monday
 #    - cron: 0 1 * * MON
@@ -50,6 +52,8 @@ jobs:
       - run: opam install . --deps-only --with-test
 
       - run: opam exec -- why3 config detect
+
+      - run: opam exec -- dune build @fmt
 
       - run: opam exec -- dune build
 

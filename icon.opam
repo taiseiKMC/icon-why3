@@ -7,6 +7,7 @@ depends: [
   "ocaml" {>= "4.14"}
   "why3" {>= "1.7.0"}
   "re"
+  "ocamlformat" {with-test & = "0.26.1"}
   "odoc" {with-doc}
 ]
 build: [

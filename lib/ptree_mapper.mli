@@ -9,5 +9,4 @@ type mapper = {
 }
 
 val default_mapper : mapper
-
 val apply_term : term -> mapper -> term

@@ -31,10 +31,8 @@ type t = {
   tzw_preambles : decl list;
   tzw_postambles : decl list;
   tzw_knowns : contract list;
-
   tzw_epp : Sort.t list StringMap.t StringMap.t;
-  (** contract name ↦ (entrypoint name ↦ sorts of parameters) *)
-
+      (** contract name ↦ (entrypoint name ↦ sorts of parameters) *)
   tzw_unknown_pre : logic_decl;
   tzw_unknown_post : logic_decl;
 }

@@ -49,7 +49,7 @@ let () =
 
 let read_channel env _path file c =
   let lexbuf = Lexing.from_channel c in
-  Lexing.set_filename lexbuf file ;
+  Lexing.set_filename lexbuf file;
   let f = Lexer.parse_mlw_file lexbuf in
   Typing.type_mlw_file env [] (file ^ ".mlw") @@ Gen_mlw.from_mlw f
 

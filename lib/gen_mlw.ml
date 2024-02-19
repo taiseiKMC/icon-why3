@@ -153,7 +153,6 @@ module E = struct
     expr @@ Einnfix (e1, ident @@ Ident.op_infix o, e2)
 
   let _mk_tuple (el : expr list) : expr = expr @@ Etuple el
-
   let mk_record (el : (qualid * expr) list) : expr = expr @@ Erecord el
 
   let mk_proj (e : expr) (m : int) (n : int) : expr =
@@ -171,7 +170,8 @@ module E = struct
     let p =
       pat
       @@ Ptuple
-           (List.init m (fun i -> pat @@ Pvar (ident @@ Format.sprintf "_x%d" i)))
+           (List.init m (fun i ->
+                pat @@ Pvar (ident @@ Format.sprintf "_x%d" i)))
     in
     let e =
       expr
@@ -187,10 +187,13 @@ end
 
 module Step_constant = struct
   let mk source sender self amount : expr =
-    E.mk_record [ qualid ["source"], source;
-                  qualid ["sender"], sender;
-                  qualid ["self"], self;
-                  qualid ["amount"], amount ]
+    E.mk_record
+      [
+        (qualid [ "source" ], source);
+        (qualid [ "sender" ], sender);
+        (qualid [ "self" ], self);
+        (qualid [ "amount" ], amount);
+      ]
 
   let source st : expr = eapp (qualid [ "source" ]) [ st ]
   let sender st : expr = eapp (qualid [ "sender" ]) [ st ]
@@ -541,10 +544,7 @@ module Generator (D : Desc) = struct
               xfer_cstr_ident,
               [
                 (Loc.dummy_position, None, false, gparam_pty);
-                ( Loc.dummy_position,
-                  None,
-                  false,
-                  Sort.pty_of_sort Sort.S_mutez );
+                (Loc.dummy_position, None, false, Sort.pty_of_sort Sort.S_mutez);
                 ( Loc.dummy_position,
                   None,
                   false,
@@ -941,41 +941,35 @@ let convert_mlw (tzw : Tzw.t) =
   let module G = Generator (struct
     let desc = { d_contracts; d_whyml = [] }
   end) in
-
   let decls =
     List.concat
       [
         (* contents of [scope Preambles] *)
         preambles;
-
-        [Dtype [
-            (* type gparam = .. *)
-            gen_gparam epp;
-
-            (* with operation = .. *)
-            G.operation_ty_def
-          ]];
-
+        [
+          Dtype
+            [
+              (* type gparam = .. *)
+              gen_gparam epp;
+              (* with operation = .. *)
+              G.operation_ty_def;
+            ];
+        ];
         (* Scope Contract .. end *)
         ds;
-
         (* type ctx = .. *)
-        [G.ctx_ty_def];
-
+        [ G.ctx_ty_def ];
         (* predicate ctx_wf (ctx: ctx) = .. *)
-        [G.ctx_wf_def];
-
+        [ G.ctx_wf_def ];
         (* contents of [scope Postambles] *)
         tzw.tzw_postambles;
-
         (* inv_pre, inv_post, contract_pre, contract_post *)
         invariants;
-
         (* let rec ghost unknown g c .. *)
-        [ Drec (G.unknown_func_def :: G.func_def) ]
+        [ Drec (G.unknown_func_def :: G.func_def) ];
       ]
   in
-  return @@ Modules [ ident "Top", decls ]
+  return @@ Modules [ (ident "Top", decls) ]
 
 (* let file desc = *)
 (*   let module G = Generator (struct *)
@@ -992,13 +986,12 @@ let convert_mlw (tzw : Tzw.t) =
 
 let parse_file fn =
   In_channel.with_open_text fn (fun ic ->
-    let lexbuf = Lexing.from_channel ic in
-    Lexing.set_filename lexbuf fn ;
-    Lexer.parse_mlw_file lexbuf)
+      let lexbuf = Lexing.from_channel ic in
+      Lexing.set_filename lexbuf fn;
+      Lexer.parse_mlw_file lexbuf)
 
 let from_mlw mlw =
   let r = Tzw.parse_mlw mlw >>= convert_mlw in
   raise_error r
 
-let from_file fn =
-  from_mlw (parse_file fn)
+let from_file fn = from_mlw (parse_file fn)
