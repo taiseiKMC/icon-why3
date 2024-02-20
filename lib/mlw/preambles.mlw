@@ -13,6 +13,10 @@ type nat = int
 
 type mutez = int
 
+type bytes = string
+
+type big_map 'a 'b = map 'a 'b
+
 type address = int
 
 type key_hash = int
@@ -23,7 +27,9 @@ type contract 'a = int
 
 type or 'a 'b = Left 'a | Right 'b
 
-type step = 
+type lambda 'a 'b = 'a -> 'b
+
+type step =
   { source: address;
     sender: address;
     self: address;
@@ -32,7 +38,7 @@ type step =
   }
 
 function mk_step (source : address) (sender : address) (self : address) (amount : mutez) (level : nat) : step =
-  { source= source; 
+  { source= source;
     sender= sender;
     self= self;
     amount= amount;
