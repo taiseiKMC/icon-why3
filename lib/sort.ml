@@ -27,6 +27,8 @@ type t =
   | S_key_hash
   | S_signature
   | S_chain_id
+  (* User defined data type *)
+  | S_any of string
 
 (* Other Michelson types but not implemented yet *)
 (* | S_never
@@ -72,6 +74,7 @@ let rec pp_sort fmt (ty : t) =
   | S_key_hash -> fprintf fmt "key_hash"
   | S_signature -> fprintf fmt "signature"
   | S_chain_id -> fprintf fmt "chain_id"
+  | S_any str -> fprintf fmt "%s" str
 
 let string_of_sort (ty : t) : string =
   let open Format in
@@ -147,7 +150,7 @@ let rec sort_of_pty (pty : pty) : t iresult =
       | "contract" ->
           let* s = elt1 pl in
           return @@ S_contract s
-      | s -> error_with "unknown sort %s" s)
+      | s -> return (S_any s)(* error_with "unknown sort %s" s *))
   | PTtuple [] -> return @@ S_unit
   | PTtuple [ pty ] -> sort_of_pty pty
   | PTtuple ([ _; _ ] as pl) ->
@@ -190,3 +193,4 @@ let rec pty_of_sort (s : t) : Ptree.pty =
   | S_key_hash -> ty "key_hash"
   | S_signature -> ty "signature"
   | S_chain_id -> ty "chain_id"
+  | S_any str -> ty str

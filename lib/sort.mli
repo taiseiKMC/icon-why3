@@ -27,6 +27,7 @@ type t =
   | S_key_hash
   | S_signature
   | S_chain_id
+  | S_any of string
 
 (* Other Michelson types but not implemented yet *)
 (* | S_never

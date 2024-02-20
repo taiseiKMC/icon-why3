@@ -216,6 +216,7 @@ let rec sort_wf (s : Sort.t) (p : expr) : term =
                ( pat @@ Papp (qualid [ "Right" ], [ pat @@ Pvar (ident "_p") ]),
                  sort_wf s2 @@ E.mk_var @@ ident "_p" );
              ] )
+  | S_any str -> term @@ Tapply ((term (Tident (Qident (ident (Format.sprintf "%s_wf" str))))), T.of_expr p)
   | _ -> term Ttrue
 
 module type Desc = sig
@@ -756,6 +757,39 @@ let gen_param_wf ep =
       ld_def = Some body;
     }
 
+let gen_types_wf (td : type_decl) =
+  let ty : Ptree.param =
+    ( Loc.dummy_position,
+      Some (Ptree_helpers.ident "_ty"),
+      false,
+      PTtyapp (Ptree_helpers.qualid [ td.td_ident.id_str ], []) )
+  in
+  let* body =
+    match td.td_def with
+    | TDalias pty ->
+        let* s = Sort.sort_of_pty pty in
+        return @@ sort_wf s (E.mk_var @@ param_id ty)
+    | TDrecord flds ->
+        List.fold_left_e
+          (fun t f ->
+            let* s = Sort.sort_of_pty f.f_pty in
+            let p =
+              sort_wf s
+              @@ Ptree_helpers.eapp (qid f.f_ident) [ E.mk_var @@ param_id ty ]
+            in
+            return @@ T.mk_and p t)
+          (Ptree_helpers.term Ttrue) flds
+    | _ -> assert false
+  in
+  return
+    {
+      ld_loc = Loc.dummy_position;
+      ld_ident = Ptree_helpers.ident (Format.sprintf "%s_wf" td.td_ident.id_str);
+      ld_params = [ ty ];
+      ld_type = None;
+      ld_def = Some body;
+    }
+
 let gen_storage_wf td =
   let sto : Ptree.param =
     ( Loc.dummy_position,
@@ -803,24 +837,28 @@ let convert_contract (epp : Sort.t list StringMap.t StringMap.t)
     |> Option.to_iresult ~none:(error_of_fmt "")
   in
   let* param_wf = gen_param_wf ep in
+  let* types_wf = List.map_e gen_types_wf c.c_types in
   let* storage_wf = gen_storage_wf c.c_store_ty in
+  let types = List.map (fun t -> Dtype [t]) c.c_types in
+  let type_logics = List.map (fun wf -> Dlogic [ wf ]) types_wf in
   return
   @@ Dscope
        ( Loc.dummy_position,
          false,
          c.c_name,
-         [
-           Dlogic
-             [
-               {
-                 ld_loc = Loc.dummy_position;
-                 ld_ident = Ptree_helpers.ident "addr";
-                 ld_params = [];
-                 ld_type = Some (Sort.pty_of_sort Sort.S_address);
-                 ld_def = None;
-               };
-             ];
-           Dtype [ c.c_store_ty ];
+          Dlogic
+            [
+              {
+                ld_loc = Loc.dummy_position;
+                ld_ident = Ptree_helpers.ident "addr";
+                ld_params = [];
+                ld_type = Some (Sort.pty_of_sort Sort.S_address);
+                ld_def = None;
+              };
+            ]
+         :: types @
+         type_logics @
+         [ Dtype [ c.c_store_ty ];
            Dlogic [ param_wf ];
            Dlogic [ storage_wf ];
            Dscope (Loc.dummy_position, false, Ptree_helpers.ident "Spec", eps);
