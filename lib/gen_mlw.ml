@@ -203,7 +203,7 @@ module E = struct
 end
 
 module Step_constant = struct
-  let mk source sender self amount level : expr =
+  let mk source sender self amount level now : expr =
     E.mk_record
       [
         (qualid [ "source" ], source);
@@ -211,6 +211,7 @@ module Step_constant = struct
         (qualid [ "self" ], self);
         (qualid [ "amount" ], amount);
         (qualid [ "level" ], level);
+        (qualid [ "now" ], now);
       ]
 
   let source st : expr = eapp (qualid [ "source" ]) [ st ]
@@ -218,6 +219,7 @@ module Step_constant = struct
   let self st : expr = eapp (qualid [ "self" ]) [ st ]
   let amount st : expr = eapp (qualid [ "amount" ]) [ st ]
   let level st : expr = eapp (qualid [ "level" ]) [ st ]
+  let now st : expr = eapp (qualid [ "now" ]) [ st ]
 end
 
 module Is_type_wf = struct
@@ -545,7 +547,8 @@ module Generator (D : Desc) = struct
                                   (source @@ E.var_of_binder st)
                                   (self @@ E.var_of_binder st)
                                   (E.mk_var dst) (E.mk_var amt)
-                                  (level @@ E.var_of_binder st))
+                                  (level @@ E.var_of_binder st)
+                                  (now @@ E.var_of_binder st))
                             in
                             dispatch_transfer ctx st (E.mk_var gp) );
                      ],
