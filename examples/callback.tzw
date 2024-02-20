@@ -11,12 +11,12 @@ scope Postambles
 
   predicate post_caller_inv (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
     addr_inv c' /\
-    match gp with
-    | Gp'0callback'0nat param ->
+    match gp, st.entrypoint with
+    | ICon.Gp (param : nat), ICon.Contract.Callback ->
         st.sender = Callee.addr /\
         c'.caller_storage.Caller.counter = c.caller_storage.Caller.counter /\
         c'.caller_storage.Caller.response = param
-    | Gp'0update'0nat _param ->
+    | ICon.Gp (_param : nat), ICon.Contract.Update ->
         cnt_resp_inv c'
     | _ -> true
     end
@@ -27,8 +27,8 @@ scope Postambles
 
   predicate post_callee_inv (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
     addr_inv c' /\
-    match gp with
-    | Gp'0oracle'0nat param ->
+    match gp, st.entrypoint with
+    | ICon.Gp (param : nat), ICon.Contract.Oracle ->
         if st.sender = Caller.addr then
           c'.caller_storage.Caller.response = param + 123 /\
           c'.caller_storage.Caller.counter = c.caller_storage.Caller.counter
@@ -72,7 +72,7 @@ scope Caller
 
     predicate update (_st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
       s' = { s with counter = p } /\
-      ops = Cons (Xfer (Gp'Callee'oracle p) 0 s.callee_addr) Nil
+      ops = Cons (Xfer (ICon.Gp (p : nat)) 0 s.callee_addr ICon.Contract.Oracle) Nil
 
     predicate callback (st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
       st.sender = s.callee_addr /\
@@ -97,7 +97,7 @@ scope Callee
 
     predicate oracle (st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
       s' = s /\
-      ops = Cons (Xfer (Gp'Caller'callback (p + 123)) 0 st.sender) Nil
+      ops = Cons (Xfer (ICon.Gp (p + 123 : nat)) 0 st.sender ICon.Contract.Callback) Nil
 
   end
 

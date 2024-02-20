@@ -18,7 +18,7 @@ end
 
 scope Alice
 
-  type storage = address
+  type storage [@gen_wf] = address
 
   predicate pre (_st : step) (_gp : gparam) (c : ctx) = inv_pre c
 
@@ -31,7 +31,7 @@ scope Alice
   predicate default (_st : step) (_p : unit) (s : storage) (ops : list operation) (_s' : storage) =
     (* This transaction seems to call only Carol, but in fact, it may call Bob because the call signature only consists of the entrypoint's name and parameter type. 
     As a result, this example should be unverified since Bob accept a call from Alice as specified in the invariant pre-condition. *)
-    (ops = Cons (Xfer (Gp'Carol'default ()) 1 s) Nil)
+    (ops = Cons (Xfer (ICon.Gp (() : unit)) 1 s ICon.Contract.Default) Nil)
 
   end
 
@@ -39,7 +39,7 @@ end
 
 scope Bob
 
-  type storage = address
+  type storage [@gen_wf] = address
 
   predicate pre (_st : step) (_gp : gparam) (c : ctx) = inv_pre c
 
@@ -59,7 +59,7 @@ end
 
 scope Carol
 
-  type storage = address
+  type storage [@gen_wf] = address
 
   predicate pre (_st : step) (_gp : gparam) (c : ctx) = inv_pre c
 

@@ -5,7 +5,7 @@ open Error_monad
 
 type entrypoint_params = {
   epp_step : param;
-  epp_param : param list;
+  epp_param : param;
   epp_old_s : param;
   epp_new_s : param;
   epp_ops : param;
@@ -31,8 +31,9 @@ type t = {
   tzw_preambles : decl list;
   tzw_postambles : decl list;
   tzw_knowns : contract list;
-  tzw_epp : Sort.t list StringMap.t StringMap.t;
-      (** contract name ↦ (entrypoint name ↦ sorts of parameters) *)
+  tzw_epp : Sort.t StringMap.t StringMap.t;
+      (** Entrypoint parameters:
+        contract name ↦ (entrypoint name ↦ sort of parameter) *)
   tzw_unknown_pre : logic_decl;
   tzw_unknown_post : logic_decl;
 }

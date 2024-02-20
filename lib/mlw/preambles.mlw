@@ -13,6 +13,24 @@ predicate is__tuple2_wf (is_a_wf : 'a -> bool) (is_b_wf : 'b -> bool) (ab : ('a,
   let (a,b) = ab in
   is_a_wf a /\ is_b_wf b
 
+predicate is__tuple3_wf (is_a_wf : 'a -> bool) (is_b_wf : 'b -> bool) (is_c_wf : 'c -> bool) (abc : ('a, 'b, 'c)) =
+  let (a,b,c) = abc in
+  is_a_wf a /\ is_b_wf b /\ is_c_wf c
+
+predicate is__tuple4_wf (is_a_wf : 'a -> bool) (is_b_wf : 'b -> bool) (is_c_wf : 'c -> bool) (is_d_wf : 'd -> bool) (abcd : ('a, 'b, 'c, 'd)) =
+  let (a,b,c,d) = abcd in
+  is_a_wf a /\ is_b_wf b /\ is_c_wf c /\ is_d_wf d
+
+predicate is__tuple5_wf
+  (is_a_wf : 'a -> bool)
+  (is_b_wf : 'b -> bool)
+  (is_c_wf : 'c -> bool)
+  (is_d_wf : 'd -> bool)
+  (is_e_wf : 'e -> bool)
+  (abcde : ('a, 'b, 'c, 'd, 'e)) =
+  let (a,b,c,d,e) = abcde in
+  is_a_wf a /\ is_b_wf b /\ is_c_wf c /\ is_d_wf d /\ is_e_wf e
+
 predicate is_list_wf (_ : 'a -> bool) (_ : list 'a) = true
 
 predicate is_unit_wf (_ : unit) = true
@@ -72,29 +90,3 @@ predicate is_or_wf (is_a_wf : 'a -> bool) (is_b_wf : 'b -> bool) (ab : or 'a 'b)
 type lambda 'a 'b = 'a -> 'b
 
 predicate is_lambda_wf (_ : 'a -> bool) (_ : 'b -> bool) (_ : lambda 'a 'b) = true
-
-type step =
-  { source: address;
-    sender: address;
-    self: address;
-    amount: mutez;
-    level: nat;
-    now: timestamp
-  }
-
-function mk_step
-    (source : address)
-    (sender : address)
-    (self : address)
-    (amount : mutez)
-    (level : nat)
-    (now : timestamp) : step =
-  { source= source;
-    sender= sender;
-    self= self;
-    amount= amount;
-    level= level;
-    now= now }
-
-predicate step_wf (st : step) =
-  st.amount >= 0

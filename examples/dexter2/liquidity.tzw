@@ -49,8 +49,8 @@ scope Postambles
     let total_record' = c'.cpmm_storage.Cpmm.lqt_total in
     let total_supply' = c'.lqt_storage.Lqt.total_supply in
     if st.sender = c.lqt_storage.Lqt.admin (* Cpmm.addr *) then
-      match gp with
-      | Gp'0mintOrBurn'0int4address quantity _ ->
+      match gp, st.entrypoint with
+      | ICon.Gp ((quantity, _) : (int, address)), ICon.Contract.MintOrBurn ->
           total_record' - total_supply' + quantity = total_record - total_supply
       | _ -> total_record' - total_supply' = total_record - total_supply
       end
@@ -98,62 +98,67 @@ scope Cpmm
 
   scope Spec
 
-  predicate add_liquidity (_st : step) (_p1 : address) (_p2 : nat) (_p3 : nat) (_p4 : timestamp) (s : storage) (op : list operation) (s' : storage) =
+  predicate add_liquidity (_st : step) (_p : ((address, nat), (nat, timestamp))) (s : storage) (op : list operation) (s' : storage) =
     s.lqt_address <> null_addr /\
     s'.lqt_address = s.lqt_address /\
     let lqt_minted = s'.lqt_total - s.lqt_total in
     match op with
-    | Cons (Xfer (Gp'Unknown'transfer _) _ _)
-      (Cons (Xfer (Gp'Lqt'mintOrBurn q _) _ lqc) Nil) ->
+    | Cons (Xfer (ICon.Gp (_ : list (address, (list (address, (nat, nat)))))) _ _ ICon.Contract.Transfer)
+            (Cons (Xfer (ICon.Gp ((q, _) : (int, address))) _ lqc ICon.Contract.MintOrBurn)
+	     Nil) ->
       q = lqt_minted /\
       lqc = s.lqt_address
     | _ -> False
     end
 
-  predicate remove_liquidity (_st : step) (_p1 : address) (p2 : nat) (_p3 : mutez) (_p4 : nat) (_p5 : timestamp) (s : storage) (op : list operation) (s' : storage) =
+  predicate remove_liquidity (_st : step) (p : (address, nat, mutez, nat, timestamp)) (s : storage) (op : list operation) (s' : storage) =
+    let (_, p2, _, _, _) = p in
     let lqt_burned = p2 in
     s.lqt_address <> null_addr /\
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total - lqt_burned /\
     match op with
-    | Cons (Xfer (Gp'Lqt'mintOrBurn q _) _ lqc)
-      (Cons (Xfer (Gp'Unknown'transfer _) _ _)
-       (Cons (Xfer (Gp'Unknown'default _) _ _) Nil)) ->
+    | Cons (Xfer (ICon.Gp ( (q, _) : (int, address) )) _ lqc ICon.Contract.MintOrBurn)
+      (Cons (Xfer (ICon.Gp ( _ : list (address, list (address, (nat, nat))))) _ _ ICon.Contract.Transfer)
+      (Cons (Xfer (ICon.Gp ( _ : unit)) _ _ ICon.Contract.Default)
+       Nil)) ->
       q = 0 - lqt_burned /\
       lqc = s.lqt_address
     | _ -> False
     end
 
-  predicate xtz_to_token (_st : step) (_p1 : address) (_p2 : nat) (_p3 : timestamp) (s : storage) (op : list operation) (s' : storage) =
+  predicate xtz_to_token (_st : step) (_p : (address, nat, timestamp)) (s : storage) (op : list operation) (s' : storage) =
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total /\
     match op with
-    | Cons (Xfer (Gp'Unknown'transfer _) _ _) Nil ->
+     | Cons (Xfer (ICon.Gp (_ : list (address, list (address, (nat, nat))))) _ _ ICon.Contract.Transfer) Nil ->
       True
     | _ -> False
     end
 
-  predicate token_to_xtz (_st : step) (_p1 : address) (_p2 : nat) (_p3 : mutez) (_p4 : timestamp) (s : storage) (op : list operation) (s' : storage) =
+  predicate token_to_xtz (_st : step) (_p : (address, nat, mutez, timestamp)) (s : storage) (op : list operation) (s' : storage) =
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total /\
     match op with
-    | Cons (Xfer (Gp'Unknown'transfer _) _ _)
-      (Cons (Xfer (Gp'Unknown'default _) _ _) Nil) ->
+    | Cons (Xfer (ICon.Gp (_ : list (address, (list (address, (nat, nat)))))) _ _ ICon.Contract.Transfer)
+            (Cons (Xfer (ICon.Gp (_ : unit)) _ _ ICon.Contract.Default)
+                   Nil) ->
       True
     | _ -> False
     end
 
-  predicate token_to_token (_st : step) (_p1 : address) (_p2 : nat) (_p3 : address) (_p4 : nat) (_p5 : timestamp) (s : storage) (op : list operation) (s' : storage) =
+  predicate token_to_token (_st : step) (_p : (address, nat, address, nat, timestamp)) (s : storage) (op : list operation) (s' : storage) =
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total /\
     match op with
-    | Cons (Xfer (Gp'Unknown'transfer _) _ _)
-      (Cons (Xfer (Gp'Cpmm'xtz_to_token _ _ _) _ _) Nil) ->
+    | Cons (Xfer (ICon.Gp (_ : list (address, (list (address, (nat, nat)))))) _ _ ICon.Contract.Transfer)
+           (Cons (Xfer (ICon.Gp (_ : (address, nat, timestamp))) _ _ ICon.Contract.Xtz_to_token)
+	    Nil) ->
       True
     | _ -> False
     end
 
-  predicate set_baker (_st : step) (_p1 : option key_hash) (_p2 : bool) (s : storage) (op : list operation) (s' : storage) =
+  predicate set_baker (_st : step) (_p : (option key_hash, bool)) (s : storage) (op : list operation) (s' : storage) =
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total /\
     match op with
@@ -177,7 +182,7 @@ scope Cpmm
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total /\
     match op with
-    | Cons (Xfer (Gp'Unknown'balance_of _) _ _) Nil ->
+    | Cons (Xfer (ICon.Gp (_ : unit)) _ _ ICon.Contract.Update_token_pool) Nil ->
       True
     | _ -> False
     end
@@ -216,7 +221,8 @@ scope Lqt
 
   scope Spec
 
-  predicate transfer (_st : step) (p1 : address) (p2 : address) (p3 : nat) (s : storage) (op : list operation) (s' : storage) =
+  predicate transfer (_st : step) (p : (address, address, nat)) (s : storage) (op : list operation) (s' : storage) =
+    let (p1, p2, p3) = p in
     let address_from = p1 in
     let address_to = p2 in
     let value = p3 in
@@ -234,13 +240,14 @@ scope Lqt
     s'.tokens = tokens[address_to <- maybe_to_balance] /\
     op = Nil
 
-  predicate approve (_st : step) (_p1 : address) (_p2 : nat) (s : storage) (op : list operation) (s' : storage) =
+  predicate approve (_st : step) (_p : (address, nat)) (s : storage) (op : list operation) (s' : storage) =
     s'.total_supply = s.total_supply /\
     s'.admin = s.admin /\
     s'.tokens = s.tokens /\
     op = Nil
 
-  predicate mintOrBurn (st : step) (quantity : int) (target : address) (s : storage) (op : list operation) (s' : storage) =
+  predicate mintOrBurn (st : step) (p : (int, address)) (s : storage) (op : list operation) (s' : storage) =
+    let (quantity, target) = p in
     st.sender = s.admin /\
     s'.total_supply = abs (s.total_supply + quantity) /\
     s'.admin = s.admin /\
@@ -251,35 +258,38 @@ scope Lqt
     let maybe_new_balance = if new_balance = 0 then None else Some new_balance in
     s'.tokens = s.tokens[target <- maybe_new_balance]
 
-  predicate getAllowance (_st : step) (_p1 : (address, address)) (p2 : contract nat) (s : storage) (op : list operation) (s' : storage) =
+  predicate getAllowance (_st : step) (p : ((address, address), contract nat)) (s : storage) (op : list operation) (s' : storage) =
+    let (_p1, p2) = p in
     let callback = p2 in
     s'.total_supply = s.total_supply /\
     s'.admin = s.admin /\
     s'.tokens = s.tokens /\
     match op with
-    | Cons (Xfer _ _ c) Nil ->
+    | Cons (Xfer _ _ c ICon.Contract.Default) Nil ->
       c = callback
     | _ -> False
     end
 
-  predicate getBalance (_st : step) (_p1 : address) (p2 : contract nat) (s : storage) (op : list operation) (s' : storage) =
+  predicate getBalance (_st : step) (p : (address, contract nat)) (s : storage) (op : list operation) (s' : storage) =
+    let (_p1, p2) = p in
     let callback = p2 in
     s'.total_supply = s.total_supply /\
     s'.admin = s.admin /\
     s'.tokens = s.tokens /\
     match op with
-    | Cons (Xfer _ _ c) Nil ->
+    | Cons (Xfer _ _ c ICon.Contract.Default) Nil ->
       c = callback
     | _ -> False
     end
 
-  predicate getTotalSupply (_st : step) (_p1 : unit) (p2 : contract nat) (s : storage) (op : list operation) (s' : storage) =
+  predicate getTotalSupply (_st : step) (p : (unit, contract nat)) (s : storage) (op : list operation) (s' : storage) =
+    let (_p1, p2) = p in
     let callback = p2 in
     s'.total_supply = s.total_supply /\
     s'.admin = s.admin /\
     s'.tokens = s.tokens /\
     match op with
-    | Cons (Xfer _ _ c) Nil ->
+    | Cons (Xfer _ _ c ICon.Contract.Default) Nil ->
       c = callback
     | _ -> False
     end
