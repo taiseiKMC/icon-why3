@@ -37,6 +37,14 @@ type mutez = int
 
 predicate is_mutez_wf (x : mutez) = x >= 0
 
+type bytes = string
+
+predicate is_bytes_wf (_ : bytes) = true
+
+type big_map 'a 'b = map 'a 'b
+
+predicate is_big_map_wf (_ : 'a -> bool) (_ : 'b -> bool) (_ : big_map 'a 'b) = true
+
 type address = int
 
 predicate is_address_wf (_ : address) = true
@@ -61,6 +69,10 @@ predicate is_or_wf (is_a_wf : 'a -> bool) (is_b_wf : 'b -> bool) (ab : or 'a 'b)
   | Right b -> is_b_wf b
   end
 
+type lambda 'a 'b = 'a -> 'b
+
+predicate is_lambda_wf (_ : 'a -> bool) (_ : 'b -> bool) (_ : lambda 'a 'b) = true
+
 type step =
   { source: address;
     sender: address;
@@ -70,7 +82,7 @@ type step =
   }
 
 function mk_step (source : address) (sender : address) (self : address) (amount : mutez) (level : nat) : step =
-  { source= source; 
+  { source= source;
     sender= sender;
     self= self;
     amount= amount;
