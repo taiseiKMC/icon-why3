@@ -28,7 +28,8 @@ scope Postambles
           c'.caller_storage.Caller.response = param + 7 /\
           c'.caller_storage.Caller.counter = c.caller_storage.Caller.counter
         ) else (
-          c'.caller_storage.Caller.counter + 7 = c'.caller_storage.Caller.response
+          c.caller_storage.Caller.counter = c'.caller_storage.Caller.counter /\
+          c.caller_storage.Caller.response = c'.caller_storage.Caller.response
         )
     | _ -> true
     end
@@ -96,8 +97,9 @@ scope Callee
 
     predicate oracle (st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
       s' = s /\
-      ops = Cons (Xfer (Gp'Caller'callback (p + 7)) 0 st.sender) Nil
-
+      ops =
+        if st.sender = Caller.addr then Cons (Xfer (Gp'Caller'callback (p + 7)) 0 st.sender) Nil
+        else Nil
   end
 
 end
