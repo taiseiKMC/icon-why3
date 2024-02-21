@@ -1,0 +1,103 @@
+scope Postambles
+
+  predicate addr_inv (c : ctx) =
+    c.caller_storage.Caller.callee_addr = Callee.addr
+
+  predicate ctx_inv (c : ctx) =
+    addr_inv c /\
+    c.caller_storage.Caller.counter + 7 = c.caller_storage.Caller.response
+
+  predicate post_caller_inv (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    addr_inv c' /\
+    match gp with
+    | Gp'0callback'0nat param ->
+        st.sender = Callee.addr /\
+        c'.caller_storage.Caller.counter = c.caller_storage.Caller.counter /\
+        c'.caller_storage.Caller.response = param
+    | Gp'0update'0nat param ->
+        c'.caller_storage.Caller.counter = param /\
+        c'.caller_storage.Caller.response = param + 7
+    | _ -> true
+    end
+
+  predicate post_callee_inv (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    addr_inv c' /\
+    match gp with
+    | Gp'0oracle'0nat param ->
+        if st.sender = Caller.addr then (
+          c'.caller_storage.Caller.response = param + 7 /\
+          c'.caller_storage.Caller.counter = c.caller_storage.Caller.counter
+        ) else (
+          c'.caller_storage.Caller.counter + 7 = c'.caller_storage.Caller.response
+        )
+    | _ -> true
+    end
+
+end
+
+(*
+
+*)
+
+scope Unknown
+
+  predicate pre (c : ctx) = ctx_inv c
+
+  predicate post (_c : ctx) (c' : ctx) = ctx_inv c'
+
+  scope Entrypoint
+
+    predicate default unit
+
+  end
+
+end
+
+scope Caller
+
+  type storage = {
+    callee_addr: address;
+    counter: nat;
+    response: nat;
+  }
+
+  let upper_ops = 3
+
+  predicate pre (c : ctx) = addr_inv c
+
+  predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) = post_caller_inv st gp c c'
+
+  scope Spec
+
+    predicate update (_st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
+      s' = { s with counter = p } /\
+      ops = Cons (Xfer (Gp'Callee'oracle p) 0 s.callee_addr) Nil
+
+    predicate callback (st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
+      st.sender = s.callee_addr /\
+      s' = { s with response = p } /\
+      ops = Nil
+
+  end
+
+end
+
+scope Callee
+
+  type storage = unit
+
+  let upper_ops = 3
+
+  predicate pre (c : ctx) = addr_inv c
+
+  predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) = post_callee_inv st gp c c'
+
+  scope Spec
+
+    predicate oracle (st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
+      s' = s /\
+      ops = Cons (Xfer (Gp'Caller'callback (p + 7)) 0 st.sender) Nil
+
+  end
+
+end
