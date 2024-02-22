@@ -267,8 +267,8 @@ module Generator (D : Desc) = struct
       (ops : expr) (s' : expr) : expr =
     eapp (qid_of c spec_ident) [ st; gp; s; ops; s' ]
 
-  let call_pre_of (c : contract) (ctx : expr) : expr =
-    eapp (qid @@ id_pre_of c) [ ctx ]
+  let call_pre_of (c : contract) (st : expr) (p : expr) (ctx : expr) : expr =
+    eapp (qid @@ id_pre_of c) [ st; p; ctx ]
 
   let call_post_of (c : contract) (st : expr) (p : expr) (ctx : expr)
       (ctx' : expr) : expr =
@@ -330,7 +330,8 @@ module Generator (D : Desc) = struct
               call_ctx_wf @@ E.var_of_binder ctx;
               call_step_wf @@ E.var_of_binder st;
               call_param_wf_of contract @@ E.var_of_binder gparam;
-              call_pre_of contract @@ E.var_of_binder ctx;
+              call_pre_of contract (E.var_of_binder st) (E.var_of_binder gparam)
+                (E.var_of_binder ctx);
             ];
         sp_post =
           [
