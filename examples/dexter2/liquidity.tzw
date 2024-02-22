@@ -90,7 +90,7 @@ scope Cpmm
     lqt_address : address;
     }
 
-  predicate pre (c : ctx) = pre_inv c
+  predicate pre (_st : step) (_gp : gparam) (c : ctx) = pre_inv c
 
   predicate post (_st : step) (_gp : gparam) (c : ctx) (c' : ctx) = post_inv c c'
 
@@ -205,7 +205,7 @@ scope Lqt
     total_supply : nat;
     }
 
-  predicate pre (c : ctx) = pre_inv c
+  predicate pre (_st : step) (_gp : gparam) (c : ctx) = pre_inv c
 
   predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
     post_inv2 st gp c c'

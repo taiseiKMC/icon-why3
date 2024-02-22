@@ -17,7 +17,7 @@ scope Boomerang
 
   type storage = unit
 
-  predicate pre (_c : ctx) = true
+  predicate pre (_st : step) (_gp : gparam) (_c : ctx) = true
 
   predicate post (_st : step) (_gp : gparam) (c : ctx) (c' : ctx) = inv_post c c'
 

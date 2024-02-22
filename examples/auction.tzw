@@ -44,7 +44,7 @@ scope Auction
 
   let upper_ops = 1
 
-  predicate pre (c : ctx) = inv_pre c
+  predicate pre (_st : step) (_gp : gparam) (c : ctx) = inv_pre c
 
   predicate post (_st : step) (_gp : gparam) (c : ctx) (c' : ctx) = inv_post c c'
 
