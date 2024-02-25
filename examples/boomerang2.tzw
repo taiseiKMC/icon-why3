@@ -1,0 +1,45 @@
+scope Unknown
+  predicate pre (c : ctx) =
+    true
+
+  predicate post (c : ctx) (c' : ctx) =
+    true
+
+  scope Entrypoint
+    predicate default unit
+  end
+end
+
+scope Dummy
+  type storage = unit
+
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
+    true
+
+  predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    c.dummy_balance + st.amount = c'.dummy_balance
+
+  let upper_ops = 1
+
+  scope Spec
+    predicate dummy (st : step) (_ : nat) (s : storage) (ops : list operation) (s' : storage) =
+      ops = Nil
+  end
+end
+
+scope Boomerang
+  type storage = unit
+
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
+    true
+
+  predicate post (_st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    c.dummy_balance = c'.dummy_balance
+
+  let upper_ops = 1
+
+  scope Spec
+    predicate default (st : step) (addr : address) (s : storage) (ops : list operation) (s' : storage) =
+      ops = Cons (Xfer (Gp'Unknown'default ()) st.amount addr) Nil
+  end
+end
