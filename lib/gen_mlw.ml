@@ -39,7 +39,7 @@ let spec_ident = ident "spec"
 let addr_ident = ident "addr"
 let param_wf_ident = ident "param_wf"
 let storage_ty_ident = ident "storage"
-let storage_wf_ident = ident "storage_wf"
+let storage_wf_ident = ident "is_storage_wf"
 let gparam_ty_ident = ident "gparam"
 let operation_ty_ident = ident "operation"
 let gas_ident = ident "g"
@@ -79,7 +79,7 @@ let qid (id : ident) : qualid = Qident id
 let _binder_id (x : binder) : ident =
   match x with _, Some x, _, _ -> x | _ -> assert false
 
-let param_id (x : param) : ident =
+let _param_id (x : param) : ident =
   match x with _, Some x, _, _ -> x | _ -> assert false
 
 let _mk_internal_id s = s
@@ -100,6 +100,9 @@ module T = struct
   let mk_and (t1 : term) (t2 : term) : term =
     term @@ Tbinnop (t1, Dterm.DTand, t2)
 
+  let mk_applys f ts =
+    List.fold_left (fun a b -> term @@ Tapply (a, b)) f ts
+
   (** convert expression to term *)
   let rec of_expr (e : expr) : term =
     let term_desc =
@@ -113,7 +116,20 @@ module T = struct
       | Etuple el -> Ttuple (List.map of_expr el)
       | Ematch (e, cls, []) ->
           Tcase (of_expr e, List.map (fun (p, e) -> (p, of_expr e)) cls)
-      | _ -> assert false
+      | Eapply ({ expr_desc=
+                    Efun ([(_, Some id, _, _)], None, _(*p?*), _, _, e);
+                  _ },
+                e') ->
+
+         Tlet (id, of_expr e', of_expr e)
+      | Eand (e1, e2) -> (* Hack: && => /\ *)
+         Tbinnop (of_expr e1, Dterm.DTand, of_expr e2)
+      | Eapply (e1, e2) -> Tapply (of_expr e1, of_expr e2)
+
+      | _ ->
+          Format.eprintf "T.of_expr: unsupported: %a@."
+            (Mlw_printer.pp_expr ~attr:true).closed e;
+          assert false
     in
     { term_desc; term_loc = e.expr_loc }
 end
@@ -155,7 +171,7 @@ module E = struct
   let _mk_tuple (el : expr list) : expr = expr @@ Etuple el
   let mk_record (el : (qualid * expr) list) : expr = expr @@ Erecord el
 
-  let mk_proj (e : expr) (m : int) (n : int) : expr =
+  let _mk_proj (e : expr) (m : int) (n : int) : expr =
     assert (m > 0 && m > n);
     let p =
       pat
@@ -183,6 +199,8 @@ module E = struct
 
   let mk_assume (t : term) : expr = expr @@ Eassert (Expr.Assume, t)
   let mk_raise (x : ident) : expr = expr @@ Eraise (qid x, None)
+
+  let mk_idapp id es = expr @@ Eidapp (qid id, es)
 end
 
 module Step_constant = struct
@@ -201,22 +219,153 @@ module Step_constant = struct
   let amount st : expr = eapp (qualid [ "amount" ]) [ st ]
 end
 
-let rec sort_wf (s : Sort.t) (p : expr) : term =
-  match s with
-  | S_nat | S_mutez -> T.of_expr @@ E.mk_bin p ">=" @@ econst 0
-  | S_pair (s1, s2) ->
-      T.mk_and (sort_wf s1 @@ E.mk_proj p 2 0) (sort_wf s2 @@ E.mk_proj p 2 1)
-  | S_or (s1, s2) ->
-      term
-      @@ Tcase
-           ( T.of_expr p,
-             [
-               ( pat @@ Papp (qualid [ "Left" ], [ pat @@ Pvar (ident "_p") ]),
-                 sort_wf s1 @@ E.mk_var @@ ident "_p" );
-               ( pat @@ Papp (qualid [ "Right" ], [ pat @@ Pvar (ident "_p") ]),
-                 sort_wf s2 @@ E.mk_var @@ ident "_p" );
-             ] )
-  | _ -> term Ttrue
+module Is_type_wf = struct
+  let pred_name = Printf.sprintf "is_%s_wf"
+
+  (* Build a term for the well-foundness of [pty], [is_<type>_wf is_'a_wf ..].
+
+     We need to pre-define [is__tupleX_wf], since [term] cannot have lambdas
+     and therefore we cannot write [fun (x, y) -> is_x_wf x /\ is_y_wf y].
+     "__" of [is__tupleX_wf] is intentional to avoid name clashes.
+   *)
+  let rec gen_expr (pty : pty) : term =
+    let fun_id id = ident @@ pred_name id.id_str in
+    let fun_qualid = function
+      | Qident id -> Qident (fun_id id)
+      | Qdot (qualid, id) -> Qdot (qualid, fun_id id)
+    in
+    match pty with
+    | PTtyvar id ->
+       tvar @@ qualid [pred_name ("'" ^ id.id_str)]
+    | PTtyapp (qualid, []) ->
+       tvar @@ fun_qualid qualid
+    | PTtyapp (qualid, ptys) ->
+       let ptys = List.map gen_expr ptys in
+       T.mk_applys (tvar @@ fun_qualid qualid) ptys
+    | PTtuple [] ->
+       tvar @@ qualid ["is_unit_wf"]
+    | PTtuple [ pty ] ->
+       gen_expr pty
+    | PTtuple ptys ->
+       let ptys = List.map gen_expr ptys in
+       let fun_tuple =
+         (* __ is intentional to avoid name crashes *)
+         qualid [Printf.sprintf "is__tuple%d_wf" (List.length ptys)]
+       in
+       T.mk_applys (tvar fun_tuple) ptys
+    | PTparen pty -> gen_expr pty
+    | _ ->
+       failwith
+         (Format.asprintf "is_type_wf: Unsupported type %a"
+            (Mlw_printer.pp_pty ~attr:true).closed pty)
+
+  (* [is_type_wf e] *)
+  let gen_apply pty e =
+    let f = gen_expr pty in
+    T.mk_applys f [T.of_expr e]
+
+  (* Auto-generate [let is_<typename>_wf = ...] *)
+  let gen_decl (type_decl : type_decl) : logic_decl iresult =
+    let loc = type_decl.td_loc in
+    let name = pred_name type_decl.td_ident.id_str in
+    let decl_id = ident name in
+    let v_id = ident "_v" in
+    let* body =
+      match type_decl.td_def with
+      | TDalias pty ->
+         return @@ gen_apply pty @@ evar @@ qid v_id
+      | TDrecord flds ->
+         (* predicate is_type_wf _s =
+            is_type1_wf _s.field1 /\
+            is_type2_wf _s.field2 ...
+          *)
+         List.fold_left_e
+           (fun t f ->
+             let p = gen_apply f.f_pty @@ E.mk_idapp f.f_ident [ evar @@ qid v_id ] in
+             return @@ T.mk_and p t)
+           (Ptree_helpers.term Ttrue) flds
+      | TDalgebraic cs ->
+         (* predicate is_type_wf _s =
+            match _s with
+            | C1 (a1, a2, ..) ->
+            is_type1_wf a1 /\ is_type2_wf a2 ..
+            | ..
+            end
+          *)
+         let* cases =
+           List.map_e (fun (_loc, c, params) ->
+               let param_ids =
+                 List.mapi (fun i _ -> ident @@ Printf.sprintf "_a%d" i) params
+               in
+               let pats = List.map (fun i -> pat @@ Pvar i) param_ids in
+               let param_tys =
+                 List.map (fun (_,_,_,pty) -> pty) params
+               in
+               let p = pat @@ Papp (qid c, pats) in
+               let* ts =
+                 List.map_e (fun (i, pty) ->
+                     let term = gen_apply pty (evar (qid i)) in
+                     return term)
+                 @@ List.combine param_ids param_tys
+               in
+               let t = List.fold_left T.mk_and (term Ttrue) ts in
+               return (p, t)) cs
+         in
+         return @@ term @@ Tcase (term @@ Tident (qid v_id), cases)
+      | _ ->
+         error_with ~loc "Unsupported %a@."
+           (Mlw_printer.pp_decl ~attr:true) (Dtype [type_decl])
+    in
+    let v_param : param =
+      ( Loc.dummy_position,
+        Some v_id,
+        false,
+        PTtyapp (Qident type_decl.td_ident,
+                 List.map (fun id -> PTtyvar id) type_decl.td_params) )
+    in
+    let t_params : param list =
+      List.map (fun td_param ->
+          ( Loc.dummy_position,
+            Some (ident (pred_name ("'" ^ td_param.id_str))),
+            false,
+            PTarrow (PTtyvar td_param, PTtyapp (qualid ["bool"], []))))
+        type_decl.td_params
+    in
+    return
+      {
+        ld_loc = Loc.dummy_position;
+        ld_ident = decl_id;
+        ld_params = t_params @ [ v_param ];
+        ld_type = None;
+        ld_def = Some body;
+      }
+
+  (* let [is_<typename>_wf] = ... *)
+  let gen_decls (type_decls : type_decl list) : decl list iresult =
+    (* One of type names need to be with attribute [@gen_wf].
+       The attribute must be removed since mlw printing has some issue around it *)
+    let type_decls, generate =
+      let rev_tds, gen =
+        List.fold_left (fun (rev_tds, gen) td ->
+            let gens, others =
+              List.partition (function
+                  | ATstr atr when atr.attr_string = "gen_wf" -> true
+                  | _ -> false) td.td_ident.id_ats
+            in
+            ({ td with td_ident = { td.td_ident with id_ats = others }} :: rev_tds,
+             gen || gens <> [] )) ([], false) type_decls
+      in
+      List.rev rev_tds, gen
+    in
+    if generate then (
+      let* decls = List.map_e gen_decl type_decls in
+      return [Dlogic decls]
+    ) else
+    return []
+end
+
+let sort_wf (s : Sort.t) (p : expr) : term =
+  Is_type_wf.gen_apply (Sort.pty_of_sort s) p
 
 module type Desc = sig
   val desc : desc
@@ -756,39 +905,6 @@ let gen_param_wf ep =
       ld_def = Some body;
     }
 
-let gen_storage_wf td =
-  let sto : Ptree.param =
-    ( Loc.dummy_position,
-      Some (Ptree_helpers.ident "_s"),
-      false,
-      PTtyapp (Ptree_helpers.qualid [ "storage" ], []) )
-  in
-  let* body =
-    match td.td_def with
-    | TDalias pty ->
-        let* s = Sort.sort_of_pty pty in
-        return @@ sort_wf s (E.mk_var @@ param_id sto)
-    | TDrecord flds ->
-        List.fold_left_e
-          (fun t f ->
-            let* s = Sort.sort_of_pty f.f_pty in
-            let p =
-              sort_wf s
-              @@ Ptree_helpers.eapp (qid f.f_ident) [ E.mk_var @@ param_id sto ]
-            in
-            return @@ T.mk_and p t)
-          (Ptree_helpers.term Ttrue) flds
-    | _ -> assert false
-  in
-  return
-    {
-      ld_loc = Loc.dummy_position;
-      ld_ident = Ptree_helpers.ident "storage_wf";
-      ld_params = [ sto ];
-      ld_type = None;
-      ld_def = Some body;
-    }
-
 let convert_contract (epp : Sort.t list StringMap.t StringMap.t)
     (c : Tzw.contract) =
   let* eps =
@@ -803,12 +919,29 @@ let convert_contract (epp : Sort.t list StringMap.t StringMap.t)
     |> Option.to_iresult ~none:(error_of_fmt "")
   in
   let* param_wf = gen_param_wf ep in
-  let* storage_wf = gen_storage_wf c.c_store_ty in
+
+  let other_decls =
+      List.concat_map (fun d ->
+          match d with
+          | Dtype dts ->
+              [d] @
+              (* Adds is_type_wf if [@gen_wf] is attached *)
+              (match Is_type_wf.gen_decls dts with
+               | Error _e -> assert false
+               | Ok xs -> xs)
+          | _ -> [d])
+        c.c_other_decls
+  in
+
   return
+  (* scope Contract .. *)
   @@ Dscope
        ( Loc.dummy_position,
          false,
          c.c_name,
+
+         other_decls @
+
          [
            Dlogic
              [
@@ -820,9 +953,7 @@ let convert_contract (epp : Sort.t list StringMap.t StringMap.t)
                  ld_def = None;
                };
              ];
-           Dtype [ c.c_store_ty ];
            Dlogic [ param_wf ];
-           Dlogic [ storage_wf ];
            Dscope (Loc.dummy_position, false, Ptree_helpers.ident "Spec", eps);
            Dlogic [ gen_spec (StringMap.find c.c_name.id_str epp) ];
          ] )

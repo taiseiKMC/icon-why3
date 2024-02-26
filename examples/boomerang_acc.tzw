@@ -16,7 +16,7 @@ end
 
 scope Boomerang
 
-  type storage = mutez
+  type storage [@gen_wf] = mutez
 
   predicate pre (_c : ctx) = true
 
