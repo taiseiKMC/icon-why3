@@ -1,0 +1,221 @@
+scope Preambles
+  use string.String
+  use list.Length
+  use list.Map
+
+  val function sha256 bytes : bytes
+
+  function sum_of : map bytes (option (bytes, nat)) -> nat
+
+  axiom SumE : sum_of (const None) = 0
+
+  axiom SumI : forall m k v0 v1.
+    let old_value = match m[k] with Some (_, n) -> n | None -> 0 end in
+    old_value >= 0 /\ (* これ上手いこと自動でできない？ *)
+    sum_of m[k <- Some (v0, v1)] = sum_of m + v1 - old_value
+
+  axiom SumI' : forall m k.
+    let old_value = match m[k] with Some (_, n) -> n | None -> 0 end in
+    sum_of m[k <- None] = sum_of m - old_value
+
+(*   axiom SumI : forall m k v0 v1.
+    (exists v2, old_value. m[k] = Some (v2, old_value) /\
+    sum_of m[k <- Some (v0, v1)] = sum_of m + v1 - old_value) \/
+    (m[k] = None /\
+    sum_of m[k <- Some (v0, v1)] = sum_of m + v1)
+
+  axiom SumI' : forall m k.
+    (exists v2, old_value. m[k] = Some (v2, old_value) /\
+    sum_of m[k <- None] = sum_of m - old_value) \/
+    (m[k] = None /\
+    sum_of m[k <- None] = sum_of m) *)
+end
+
+scope Postambles
+  predicate addr_inv (c : ctx) =
+    c.splitter_storage.Splitter.mixer_addr = Mixer.addr
+
+  predicate storage_inv (c : ctx) =
+    c.splitter_balance >= 0 /\
+    sum_of c.mixer_storage.Mixer.balances <= c.mixer_balance /\
+    addr_inv c
+
+  predicate splitter_storage_inv (c : ctx) =
+    c.splitter_storage.Splitter.state = None
+end
+
+scope Unknown
+  predicate pre (c : ctx) =
+    storage_inv c /\
+    splitter_storage_inv c
+
+  predicate post (c : ctx) (c' : ctx) =
+    storage_inv c' /\
+    splitter_storage_inv c'
+
+  scope Entrypoint
+    predicate default unit
+  end
+
+end
+
+scope Mixer
+
+  type storage = {
+    balances : big_map bytes (option (bytes, nat));
+  }
+
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
+    storage_inv c /\
+    match gp with
+    | Gp'Mixer'withdraw key passcode ->
+        (st.sender <> Splitter.addr -> c.splitter_storage.Splitter.state = None)
+    | Gp'Mixer'deposit _ _ -> c.splitter_storage.Splitter.state = None
+    | _ -> false
+    end
+
+  predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    storage_inv c' /\
+    match gp with
+    | Gp'Mixer'withdraw key passcode ->
+        (forall hash token.
+        c.mixer_storage.Mixer.balances[key] = Some (hash, token) ->
+        c'.mixer_storage.Mixer.balances[key] = None /\
+        c.mixer_balance + st.amount = c'.mixer_balance + token) /\
+        (st.sender <> Splitter.addr ->
+        c.splitter_storage.Splitter.state = c'.splitter_storage.Splitter.state) /\
+        (st.sender = Splitter.addr ->
+        c'.splitter_storage.Splitter.state = None)
+    | _ ->
+        c.splitter_storage.Splitter.state = c'.splitter_storage.Splitter.state /\
+        c.mixer_balance + st.amount = c'.mixer_balance
+    end
+
+  let upper_ops = 1
+
+  scope Spec
+    predicate deposit (st : step) (key : bytes) (hash : bytes) (s : storage) (ops : list operation) (s' : storage) =
+      let b = s.balances[key <- Some (hash, st.amount)] in
+      s' = { s with balances = b } /\
+      ops = Nil
+
+    predicate withdraw (st : step) (key : bytes) (passcode : bytes) (s : storage) (ops : list operation) (s' : storage) =
+      let b = s.balances in
+      exists hash token.
+      b[key] = Some (hash, token) /\
+      if sha256 (concat key passcode) = hash
+      then
+        s' = { s with balances = b[key <- None] } /\
+        ops = Cons (Xfer (Gp'Unknown'default ()) token st.sender) Nil
+      else
+        false /\
+        s' = s /\
+        ops = ops = Cons (Xfer (Gp'Unknown'default ()) 0 st.sender) Nil
+      (* match b[key] with
+      | None -> false
+      | Some (hash, token) ->
+          (* sha256  *) (concat key passcode) = hash /\
+          s' = { s with balances = b[key <- None] } /\
+          ops = Cons (Xfer (Gp'Unknown'default ()) token st.sender) Nil
+      end *)
+      (* st.sender = Splitter.addr /\
+      ops = Cons (Xfer (Gp'Unknown'default ()) 0 st.sender) Nil *)
+  end
+
+end
+
+scope Splitter
+  type storage = {
+    mixer_addr : address;
+    (* state : option (address, address) *)
+    state : option (list address)
+  }
+
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
+    storage_inv c /\
+    match gp with
+    | Gp'Splitter'split key passcode dests ->
+        c.splitter_storage.Splitter.state = None
+    | Gp'Splitter'default () ->
+        st.sender <> Mixer.addr -> c.splitter_storage.Splitter.state = None
+    | _ -> false
+    end
+
+  predicate post (_st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    storage_inv c' /\
+    c'.splitter_storage.Splitter.state = None /\
+    match gp with
+    | Gp'Splitter'split key passcode dests ->
+        forall hash token.
+        c.mixer_storage.Mixer.balances[key] = Some (hash, token) ->
+        c'.mixer_storage.Mixer.balances[key] = None /\
+        c.mixer_balance = c'.mixer_balance + token
+    | Gp'Splitter'default () ->
+        c.mixer_balance = c'.mixer_balance
+    | _ -> false
+    end
+
+  let upper_ops = 3
+
+  scope Spec
+    predicate split (st : step) (key : bytes) (passcode : bytes) (dests : list address) (s : storage) (ops : list operation) (s' : storage) =
+      ops = Cons (Xfer (Gp'Mixer'withdraw key passcode) 0 s.mixer_addr) Nil /\
+      s.state = None /\
+      s'.state = Some dests /\
+      s.mixer_addr = s'.mixer_addr
+    
+    predicate default (st : step) (_p : unit) (s : storage) (ops : list operation) (s' : storage) =
+      st.sender = s.mixer_addr /\
+      ((s.state = None /\
+          ops = Nil /\
+          s' = s) \/
+      (
+       (* exists addr0 addr1.
+          s.state = Some (addr0, addr1) /\
+          let t = div st.amount 2 in
+          let c_op addr = Xfer (Gp'Unknown'default ()) t addr in
+          let op0 = c_op addr0 in
+          let op1 = c_op addr1 in
+          addr0 <> st.self /\
+          addr1 <> st.self /\
+          ops = Cons op0 (Cons op1 Nil) /\ *)
+        exists dests.
+          s.state = Some dests /\
+          let t = div st.amount (length dests) in
+          let c_op addr = Xfer (Gp'Unknown'default ()) t addr in
+          ops = (* 3回展開 *)
+          (match dests with
+          | Nil -> Nil
+          | Cons addr0 t ->
+              Cons (c_op addr0)
+              (match dests with
+              | Nil -> Nil
+              | Cons addr1 t ->
+                  Cons (c_op addr1)
+                  (match dests with
+                  | Nil -> Nil
+                  | Cons addr2 _ -> Cons (c_op addr2) Nil
+                  end)
+              end)
+          end) /\
+          (* ops = map c_op dests /\ *)
+          s' = { s with state = None }))
+      (* match s.state with
+      | None ->
+          ops = Nil /\
+          s' = s
+      (* | Some dests -> *)
+      | Some _ ->
+          (* let t = div st.amount 2 in *)
+          (* let op0 = Xfer (Gp'Unknown'default ()) t addr0 in
+          let op1 = Xfer (Gp'Unknown'default ()) t addr1 in
+          addr0 <> st.self /\
+          addr1 <> st.self /\ *)
+          (* ops = Cons op0 (Cons op1 Nil) /\ *)
+          ops = Nil /\
+          (* let t = div st.amount (length dests) in
+          ops = map (fun addr -> Xfer (Gp'Unknown'default ()) t addr) dests /\ *)
+          s' = { s with state = None }
+      end *)
+  end
+end
