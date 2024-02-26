@@ -14,40 +14,40 @@ let is_step_type (pty : Ptree.pty) : bool = is_id_type pty Id.step_ty
 let is_storage_type (pty : Ptree.pty) : bool = is_id_type pty Id.storage_ty
 
 type entrypoint_params = {
-  epp_step : Ptree.param;
-  epp_param : Ptree.param list;
-  epp_old_s : Ptree.param;
-  epp_new_s : Ptree.param;
-  epp_ops : Ptree.param;
+  epp_step : param;
+  epp_param : param list;
+  epp_old_s : param;
+  epp_new_s : param;
+  epp_ops : param;
 }
 
 type entrypoint = {
   ep_loc : Loc.position;
-  ep_name : Ptree.ident;
+  ep_name : ident;
   ep_params : entrypoint_params;
-  ep_body : Ptree.term;
+  ep_body : term;
 }
 
 type contract = {
-  c_name : Ptree.ident;
-  c_store_ty : Ptree.type_decl;
+  c_name : ident;
   c_entrypoints : entrypoint list;
   c_num_kont : int;
-  c_pre : Ptree.logic_decl;
-  c_post : Ptree.logic_decl;
+  c_pre : logic_decl;
+  c_post : logic_decl;
+  c_other_decls : decl list;
 }
 
 type t = {
-  tzw_preambles : Ptree.decl list;
-  tzw_postambles : Ptree.decl list;
+  tzw_preambles : decl list;
+  tzw_postambles : decl list;
   tzw_knowns : contract list;
   tzw_epp : Sort.t list StringMap.t StringMap.t;
-  tzw_unknown_pre : Ptree.logic_decl;
-  tzw_unknown_post : Ptree.logic_decl;
+  tzw_unknown_pre : logic_decl;
+  tzw_unknown_post : logic_decl;
 }
 
 (** entrypoint params are "(st : step) (p1 : t1) ... (pn : tn) (s : store) (ops : list operation) (s' : store)", where "t1 ... tn" must be a michelson type. *)
-let parse_entrypoint_params (params : Ptree.param list) =
+let parse_entrypoint_params (params : param list) =
   let param_loc (l, _, _, _) = l in
   let param_pty (_, _, _, pty) = pty in
   let* st, params =
@@ -120,7 +120,7 @@ let parse_entrypoint_params (params : Ptree.param list) =
       epp_ops = op;
     }
 
-let parse_entrypoint_pred (ld : Ptree.logic_decl) : entrypoint iresult =
+let parse_entrypoint_pred (ld : logic_decl) : entrypoint iresult =
   let ep_loc = ld.ld_loc in
   let ep_name = ld.ld_ident in
   let* ep_params = parse_entrypoint_params ld.ld_params in
@@ -134,24 +134,24 @@ let parse_entrypoint_pred (ld : Ptree.logic_decl) : entrypoint iresult =
   in
   return { ep_loc; ep_name; ep_params; ep_body }
 
-let parse_entrypoint_scope (lds : Ptree.decl list) =
+let parse_entrypoint_scope (lds : decl list) =
   List.fold_left_e
     (fun tl d ->
       match d with
-      | Ptree.Dlogic [ ld ] ->
+      | Dlogic [ ld ] ->
           let* ep = parse_entrypoint_pred ld in
           return @@ (ep :: tl)
       | _ -> error_with "invalid format: unexpected decl in Spec scope")
     [] lds
 
-let check_storage_type_decl (td : Ptree.type_decl) : Ptree.type_decl iresult =
+let check_storage_type_decl (td : type_decl) : type_decl iresult =
   let loc = td.td_loc in
   let* () =
     error_unless (td.td_params = [])
       ~err:(error_of_fmt ~loc "storage type cannot have type parameters")
   in
   let* () =
-    error_unless (td.td_vis = Ptree.Public) ~err:(error_of_fmt ~loc "public")
+    error_unless (td.td_vis = Public) ~err:(error_of_fmt ~loc "public")
   in
   let* () =
     error_unless (td.td_mut = false) ~err:(error_of_fmt ~loc "immutable")
@@ -162,32 +162,9 @@ let check_storage_type_decl (td : Ptree.type_decl) : Ptree.type_decl iresult =
   let* () =
     error_unless (td.td_wit = None) ~err:(error_of_fmt ~loc "pure record")
   in
-  match td.td_def with
-  | TDalias pty ->
-      let* _ =
-        trace ~err:(error_of_fmt ~loc "Michelson type is expected")
-        @@ Sort.sort_of_pty pty
-      in
-      return td
-  | TDrecord flds ->
-      let* () =
-        List.iter_e
-          (fun f ->
-            let* _ =
-              trace
-                ~err:(error_of_fmt ~loc:f.f_loc "Michelson type is expected")
-              @@ Sort.sort_of_pty f.f_pty
-            in
-            return ())
-          flds
-      in
-      return td
-  | _ ->
-      error_with ~loc
-        "storage type must be a Michelson type or a record type of which \
-         fields' type is a Michelson type"
+  return td
 
-let parse_upper_ops (e : Ptree.expr) =
+let parse_upper_ops (e : expr) =
   let loc = e.expr_loc in
   match e.expr_desc with
   | Econst (ConstInt i) -> (
@@ -197,10 +174,11 @@ let parse_upper_ops (e : Ptree.expr) =
   | _ -> error_with ~loc "upper_ops_len shall be an integer constant"
 
 let parse_contract loc id ds =
-  let* ostore, okont, oeps, opre, opost =
+  let* _ostore, okont, oeps, opre, opost =
     List.fold_left_e
       (fun (ostore, okont, oeps, opre, opost) -> function
-        | Ptree.Dtype [ td ] when td.td_ident.id_str = Id.storage_ty.id_str ->
+        (* TODO: storage can be defined with other types *)
+        | Dtype [ td ] when td.td_ident.id_str = Id.storage_ty.id_str ->
             let* () =
               error_unless (ostore = None)
                 ~err:
@@ -209,6 +187,10 @@ let parse_contract loc id ds =
             in
             let* store = check_storage_type_decl td in
             return (Some store, okont, oeps, opre, opost)
+
+        | Dtype _tds ->
+            return (ostore, okont, oeps, opre, opost)
+
         | Dlet (id, _, _, e) when id.id_str = Id.upper_ops.id_str ->
             let* () =
               error_unless (okont = None)
@@ -237,12 +219,15 @@ let parse_contract loc id ds =
                 ~err:(error_of_fmt ~loc:ld.ld_loc "multiple declaration of pre")
             in
             return (ostore, okont, oeps, opre, Some ld)
-        | _ -> error_with ~loc "unexpected decl")
+
+        | Dlogic _ ->
+            return (ostore, okont, oeps, opre, opost)
+
+        | decl -> error_with ~loc "@[<2>unexpected declaration:@ %a@]"
+                    (Mlw_printer.pp_decl ~attr:true)
+                    decl)
       (None, None, None, None, None)
       ds
-  in
-  let* c_store_ty =
-    Option.to_iresult ostore ~none:(error_of_fmt ~loc "storage is missing")
   in
   let* c_num_kont =
     Option.to_iresult okont ~none:(error_of_fmt ~loc "upper_ops is missing")
@@ -256,10 +241,28 @@ let parse_contract loc id ds =
   let* c_post =
     Option.to_iresult opost ~none:(error_of_fmt ~loc "post is missing")
   in
-  return { c_name = id; c_store_ty; c_entrypoints; c_num_kont; c_pre; c_post }
+  let c_other_decls =
+    List.filter (function
+        | Dlet (id, _, _, _) when id.id_str = Id.upper_ops.id_str ->
+            (* skip let upper_ops = _ *)
+            false
+        | Dlogic [ ld ] when ld.ld_ident.id_str = Id.pre.id_str ->
+            (* skip predicate pre = _ *)
+            false
+        | Dlogic [ ld ] when ld.ld_ident.id_str = Id.post.id_str ->
+            (* skip predicate post = _ *)
+            false
+        | Dscope (_loc, _, id, _dls) when id.id_str = Id.spec_scope.id_str ->
+            (* skip Spec *)
+            false
+        | _ -> true) ds
+  in
+  return { c_name = id; c_entrypoints; c_num_kont; c_pre; c_post;
+           c_other_decls
+         }
 
-let parse_unknown (loc : Loc.position) (ds : Ptree.decl list) =
-  let parse_entrypoint_type (ds : Ptree.decl list) =
+let parse_unknown (loc : Loc.position) (ds : decl list) =
+  let parse_entrypoint_type (ds : decl list) =
     List.fold_left_e
       (fun m -> function
         | Dlogic [ ld ] ->
@@ -309,7 +312,7 @@ let parse_unknown (loc : Loc.position) (ds : Ptree.decl list) =
   in
   return @@ (ep, pre, post)
 
-let parse_mlw (mlw : Ptree.mlw_file) =
+let parse_mlw (mlw : mlw_file) =
   let* scopes =
     match mlw with
     | Decls ds ->
