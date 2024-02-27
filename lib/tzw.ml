@@ -187,10 +187,7 @@ let parse_contract loc id ds =
             in
             let* store = check_storage_type_decl td in
             return (Some store, okont, oeps, opre, opost)
-
-        | Dtype _tds ->
-            return (ostore, okont, oeps, opre, opost)
-
+        | Dtype _tds -> return (ostore, okont, oeps, opre, opost)
         | Dlet (id, _, _, e) when id.id_str = Id.upper_ops.id_str ->
             let* () =
               error_unless (okont = None)
@@ -219,13 +216,11 @@ let parse_contract loc id ds =
                 ~err:(error_of_fmt ~loc:ld.ld_loc "multiple declaration of pre")
             in
             return (ostore, okont, oeps, opre, Some ld)
-
-        | Dlogic _ ->
-            return (ostore, okont, oeps, opre, opost)
-
-        | decl -> error_with ~loc "@[<2>unexpected declaration:@ %a@]"
-                    (Mlw_printer.pp_decl ~attr:true)
-                    decl)
+        | Dlogic _ -> return (ostore, okont, oeps, opre, opost)
+        | decl ->
+            error_with ~loc "@[<2>unexpected declaration:@ %a@]"
+              (Mlw_printer.pp_decl ~attr:true)
+              decl)
       (None, None, None, None, None)
       ds
   in
@@ -242,7 +237,8 @@ let parse_contract loc id ds =
     Option.to_iresult opost ~none:(error_of_fmt ~loc "post is missing")
   in
   let c_other_decls =
-    List.filter (function
+    List.filter
+      (function
         | Dlet (id, _, _, _) when id.id_str = Id.upper_ops.id_str ->
             (* skip let upper_ops = _ *)
             false
@@ -255,11 +251,11 @@ let parse_contract loc id ds =
         | Dscope (_loc, _, id, _dls) when id.id_str = Id.spec_scope.id_str ->
             (* skip Spec *)
             false
-        | _ -> true) ds
+        | _ -> true)
+      ds
   in
-  return { c_name = id; c_entrypoints; c_num_kont; c_pre; c_post;
-           c_other_decls
-         }
+  return
+    { c_name = id; c_entrypoints; c_num_kont; c_pre; c_post; c_other_decls }
 
 let parse_unknown (loc : Loc.position) (ds : decl list) =
   let parse_entrypoint_type (ds : decl list) =

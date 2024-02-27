@@ -1,35 +1,29 @@
 open Why3
 
 type error = Loc.position option * exn
-
 type trace = error list
 
 exception Trace of trace
 
 let () =
   Exn_printer.register (fun ppf -> function
-      | Failure s ->
-         Format.pp_print_string ppf s
-      | Trace errors ->
-         let open Format in
-         fprintf ppf "@[<v>%a@]"
-           (pp_print_list
-              ~pp_sep:(fun ppf () -> fprintf ppf ",@ ")
-              (fun ppf -> function
-                | Some loc, e ->
-                   fprintf ppf
-                     "@[<2>File %a:@ %a@]"
-                     Loc.pp_position loc
+    | Failure s -> Format.pp_print_string ppf s
+    | Trace errors ->
+        let open Format in
+        fprintf ppf "@[<v>%a@]"
+          (pp_print_list
+             ~pp_sep:(fun ppf () -> fprintf ppf ",@ ")
+             (fun ppf -> function
+               | Some loc, e ->
+                   fprintf ppf "@[<2>File %a:@ %a@]" Loc.pp_position loc
                      Exn_printer.exn_printer e
-                | None, e ->
-                   Exn_printer.exn_printer ppf e))
-           errors
-      | e -> raise e)
+               | None, e -> Exn_printer.exn_printer ppf e))
+          errors
+    | e -> raise e)
 
 type 'a iresult = ('a, trace) Result.t
 
 let return = Result.ok
-
 let error (e : error) : 'a iresult = Result.error [ e ]
 
 let error_with ?loc msg =

@@ -1,9 +1,7 @@
 type error = Why3.Loc.position option * exn
-
 type 'a iresult = ('a, error list) result
 
 val return : 'a -> ('a, 'b) result
-
 val error : error -> 'a iresult
 
 val error_with :
