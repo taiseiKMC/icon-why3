@@ -56,7 +56,7 @@ end
 
 scope Caller
 
-  type storage = {
+  type storage [@gen_wf] = {
     callee_addr: address;
     counter: nat;
     response: nat;
@@ -85,7 +85,7 @@ end
 
 scope Callee
 
-  type storage = unit
+  type storage [@gen_wf] = unit
 
   let upper_ops = 1
 
