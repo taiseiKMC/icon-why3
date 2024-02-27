@@ -1,15 +1,35 @@
 open Why3
 
-type error = Exn of (Loc.position option * exn)
-type 'a iresult = ('a, error list) Result.t
+type error = Loc.position option * exn
+type trace = error list
+
+exception Trace of trace
+
+let () =
+  Exn_printer.register (fun ppf -> function
+    | Failure s -> Format.pp_print_string ppf s
+    | Trace errors ->
+        let open Format in
+        fprintf ppf "@[<v>%a@]"
+          (pp_print_list
+             ~pp_sep:(fun ppf () -> fprintf ppf ",@ ")
+             (fun ppf -> function
+               | Some loc, e ->
+                   fprintf ppf "@[<2>File %a:@ %a@]" Loc.pp_position loc
+                     Exn_printer.exn_printer e
+               | None, e -> Exn_printer.exn_printer ppf e))
+          errors
+    | e -> raise e)
+
+type 'a iresult = ('a, trace) Result.t
 
 let return = Result.ok
 let error (e : error) : 'a iresult = Result.error [ e ]
 
 let error_with ?loc msg =
-  Format.kasprintf (fun s -> error @@ Exn (loc, Failure s)) msg
+  Format.kasprintf (fun s -> error @@ (loc, Failure s)) msg
 
-let error_of_fmt ?loc msg = Format.kasprintf (fun s -> Exn (loc, Failure s)) msg
+let error_of_fmt ?loc msg = Format.kasprintf (fun s -> (loc, Failure s)) msg
 
 let trace ~(err : error) (m : 'a iresult) : 'a iresult =
   match m with Ok v -> return v | Error tr -> Error (err :: tr)
@@ -21,15 +41,7 @@ let ( >>= ) = Result.bind
 let ( let* ) = Result.bind
 
 let raise_error (m : 'a iresult) : 'a =
-  let rec fmt_trace ?loc tr =
-    match tr with
-    | [] -> assert false
-    | [ Exn (None, e) ] -> Loc.error ?loc e
-    | [ Exn (Some loc, e) ] -> Loc.error ~loc e
-    | Exn (None, _) :: tl -> fmt_trace ?loc tl
-    | Exn (Some loc, _) :: tl -> fmt_trace ~loc tl
-  in
-  match m with Ok v -> v | Error tr -> fmt_trace tr
+  match m with Ok v -> v | Error tr -> raise (Trace tr)
 
 module StringMap = struct
   include Map.Make (String)

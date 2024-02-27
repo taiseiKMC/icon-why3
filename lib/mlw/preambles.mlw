@@ -9,21 +9,59 @@ use export map.Const
 exception Insufficient_mutez
 exception Terminate
 
+predicate is__tuple2_wf (is_a_wf : 'a -> bool) (is_b_wf : 'b -> bool) (ab : ('a, 'b)) =
+  let (a,b) = ab in
+  is_a_wf a /\ is_b_wf b
+
+predicate is_list_wf (_ : 'a -> bool) (_ : list 'a) = true
+
+predicate is_unit_wf (_ : unit) = true
+
+predicate is_bool_wf (_ : bool) = true
+
+predicate is_map_wf (_ : 'a -> bool) (_ : 'b -> bool) (_ : map 'a 'b) = true
+
+predicate is_option_wf (is_a_wf : 'a -> bool) (o : option 'a) =
+  match o with
+  | None -> true
+  | Some a -> is_a_wf a
+  end
+
+predicate is_int_wf (_ : int) = true
+
 type nat = int
+
+predicate is_nat_wf (x : nat) = x >= 0
 
 type mutez = int
 
+predicate is_mutez_wf (x : mutez) = x >= 0
+
 type address = int
+
+predicate is_address_wf (_ : address) = true
 
 type key_hash = int
 
+predicate is_key_hash_wf (_ : address) = true
+
 type timestamp = int
+
+predicate is_timestamp_wf (_ : address) = true
 
 type contract 'a = int
 
+predicate is_contract_wf (_ : 'a -> bool) (_ : contract 'a) = true
+
 type or 'a 'b = Left 'a | Right 'b
 
-type step = 
+predicate is_or_wf (is_a_wf : 'a -> bool) (is_b_wf : 'b -> bool) (ab : or 'a 'b) =
+  match ab with
+  | Left a -> is_a_wf a
+  | Right b -> is_b_wf b
+  end
+
+type step =
   { source: address;
     sender: address;
     self: address;
@@ -31,7 +69,7 @@ type step =
   }
 
 function mk_step (source : address) (sender : address) (self : address) (amount : mutez) : step =
-  { source= source; 
+  { source= source;
     sender= sender;
     self= self;
     amount= amount }

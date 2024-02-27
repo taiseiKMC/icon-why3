@@ -15,7 +15,7 @@ end
 
 scope Boomerang
 
-  type storage = unit
+  type storage [@gen_wf] = unit
 
   predicate pre (_c : ctx) = true
 

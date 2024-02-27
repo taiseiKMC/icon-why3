@@ -1,4 +1,4 @@
-type error = Exn of (Why3.Loc.position option * exn)
+type error = Why3.Loc.position option * exn
 type 'a iresult = ('a, error list) result
 
 val return : 'a -> ('a, 'b) result

@@ -34,7 +34,7 @@ end
 
 scope Auction
 
-  type storage = {
+  type storage [@gen_wf] = {
     beneficiary : address;
     highest_bidder : address;
     highest_bid : mutez;

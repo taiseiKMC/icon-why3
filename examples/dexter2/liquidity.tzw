@@ -78,7 +78,7 @@ end
 
 scope Cpmm
 
-  type storage = {
+  type storage [@gen_wf] = {
     token_pool : nat;
     xtz_pool : mutez;
     lqt_total : nat;
@@ -198,9 +198,11 @@ end
 
 scope Lqt
 
-  type storage = {
+  type allowance_key [@gen_wf] = { owner : address; spender : address }
+
+  type storage [@gen_wf] = {
     tokens : map address (option nat);
-    allowances : map (address, address) (option nat);
+    allowances : map allowance_key (option nat);
     admin : address;
     total_supply : nat;
     }
