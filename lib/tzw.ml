@@ -39,6 +39,7 @@ type contract = {
 
 type t = {
   tzw_preambles : decl list;
+  tzw_midambles : decl list;
   tzw_postambles : decl list;
   tzw_knowns : contract list;
   tzw_epp : Sort.t StringMap.t StringMap.t;
@@ -316,6 +317,12 @@ let parse_mlw (mlw : mlw_file) =
     | Some (_, _, ds) -> ds
   in
   let scopes = StringMap.remove Id.preambles_scope.id_str scopes in
+  let midambles =
+    match StringMap.find_opt Id.midambles_scope.id_str scopes with
+    | None -> []
+    | Some (_, _, ds) -> ds
+  in
+  let scopes = StringMap.remove Id.midambles_scope.id_str scopes in
   let postambles =
     match StringMap.find_opt Id.postambles_scope.id_str scopes with
     | None -> []
@@ -347,6 +354,7 @@ let parse_mlw (mlw : mlw_file) =
   return
     {
       tzw_preambles = preambles;
+      tzw_midambles = midambles;
       tzw_postambles = postambles;
       tzw_knowns = cs;
       tzw_epp = epp;

@@ -29,6 +29,7 @@ type contract = {
 
 type t = {
   tzw_preambles : decl list;
+  tzw_midambles : decl list;
   tzw_postambles : decl list;
   tzw_knowns : contract list;
   tzw_epp : Sort.t StringMap.t StringMap.t;

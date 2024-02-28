@@ -1320,6 +1320,7 @@ let convert_mlw (tzw : Tzw.t) =
     | _ -> error_with "invalid prembles: preambles must be list of declarations"
   in
   let* preambles = Is_type_wf.add_wfs preambles in
+  let* midambles = Is_type_wf.add_wfs tzw.tzw_midambles in
   let entrypoint_def =
     let epns : string list =
       StringSet.elements
@@ -1528,6 +1529,8 @@ let convert_mlw (tzw : Tzw.t) =
               };
             ];
         ];
+        (* contents of [scope Midambles] *)
+        midambles;
         (* Scope Contract .. end *)
         ds;
         (* type ctx = .. *)
