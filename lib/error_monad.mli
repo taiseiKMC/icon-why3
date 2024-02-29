@@ -43,4 +43,5 @@ module List : sig
 
   val map_e : ('a -> 'b iresult) -> 'a list -> 'b list iresult
   val iter_e : ('a -> unit iresult) -> 'a list -> unit iresult
+  val concat_map_e : ('a -> 'b list iresult) -> 'a list -> 'b list iresult
 end

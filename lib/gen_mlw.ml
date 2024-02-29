@@ -369,6 +369,16 @@ module Is_type_wf = struct
       let* decls = List.map_e gen_decl type_decls in
       return [ Dlogic decls ]
     else return []
+
+  let add_wfs (decls : decl list) : decl list iresult =
+    (* Adds predicate [is_type_wf] for type decls with [@gen_wf] in the preambles *)
+    List.concat_map_e
+      (function
+        | Dtype dts as d ->
+            let* xs = gen_decls dts in
+            return ([ d ] @ xs)
+        | d -> return [ d ])
+      decls
 end
 
 let sort_wf (s : Sort.t) (p : expr) : term =
@@ -929,22 +939,7 @@ let convert_contract (epp : Sort.t list StringMap.t StringMap.t)
     |> Option.to_iresult ~none:(error_of_fmt "")
   in
   let* param_wf = gen_param_wf ep in
-
-  let other_decls =
-    List.concat_map
-      (fun d ->
-        match d with
-        | Dtype dts -> (
-            [ d ]
-            @
-            (* Adds is_type_wf if [@gen_wf] is attached *)
-            match Is_type_wf.gen_decls dts with
-            | Error _e -> assert false
-            | Ok xs -> xs)
-        | _ -> [ d ])
-      c.c_other_decls
-  in
-
+  let* other_decls = Is_type_wf.add_wfs c.c_other_decls in
   return
   (* scope Contract .. *)
   @@ Dscope
@@ -1079,6 +1074,7 @@ let convert_mlw (tzw : Tzw.t) =
     | Decls ds -> return (ds @ tzw.tzw_preambles)
     | _ -> error_with "invalid prembles: preambles must be list of declarations"
   in
+  let* preambles = Is_type_wf.add_wfs preambles in
   let module G = Generator (struct
     let desc = { d_contracts; d_whyml = [] }
   end) in

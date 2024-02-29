@@ -91,4 +91,8 @@ module List = struct
 
   let iter_e (f : 'a -> unit iresult) (l : 'a list) : unit iresult =
     fold_left_e (fun () x -> f x) () l
+
+  let concat_map_e f l =
+    let* xs = map_e f l in
+    return @@ concat xs
 end
