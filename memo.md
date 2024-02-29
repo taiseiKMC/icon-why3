@@ -25,7 +25,14 @@
 - 引数に`contract`を渡すとき, 引数の仕様が記述できなくないか？
   - `gparam` が `contract` を受け取る場合、例えばどう `contract` が `DAO.vote` であると記述できる？
   - 今 `type contract 'a = int` になっている
-
+- DONE: `use export string.String` と `use export list.Length` をすると `length` が conflict する
+  - `export` を消すと `Symbol length is already defined in the current scope` は出なくなるが, 片方使えなくなってそう?
+  - 衝突を解決する or shadowing した方を参照する方法はあるんだろうか
+  - `Length.length`, `String.length` でいけました
+- これ, operation list が本当に list になる場合の証明, 書けなさそう
+  - upper_ops の制限もあるし, なぜか証明が死ぬ
+- contract.addr が使えたり使えなかったり...?
+  - Spec だと使えないかもしれない
 
 # チラシの裏
 - 対応していない構文含むtzwのエラーの場所がわからない
@@ -60,6 +67,18 @@
 - mixer とか zk を使ったコントラクト例として良さそう
   - tezos の mixer, ある？
   - マルチコントラクトの例ではないな...
+- list の length とか map とかを使うには preamble に use を書かないといけない
+  - API, どこ？ https://www.why3.org/stdlib/string.html
+- わかってはいたけれど、debug むずい
+- `spec c c' -> post c c'` の条件が直接は生成されていないけれど、大丈夫なんだろうか (反例はまだ無い)
+  - いや, callback する場合は post が成り立たないからこれでいいのか
+- get counterexamples をしても, 生成されたコードのlocation情報がほぼほぼダミーなので, model の情報に位置情報がろくに乗ってなくて全くわからん
+- map の sum の axiom に関して, 値が nat とかのときに自動で `>=0` の条件を導出してほしいなー
+  - `old_value >= 0`
+- upper_ops の回数だけ list を展開するマクロみたいなのがあると捗る?
+- address が smartcontract でないことを条件で記述できると強いことが言えて嬉しいかもしれない
+- implicit account を代表して 1 つコントラクトを定義して, 挙動をシミュレート? できないか試しているが,
+  source を定義したコントラクトとすることはできないしで条件を記述できなさそうな
 
 # DAO
 - TEZOS の DAO 実装 https://github.com/GeniusContracts/murmuration/blob/main/docs/token.md

@@ -1,0 +1,249 @@
+scope Preambles
+  use string.String
+  use list.Length
+  use list.Map
+
+  val function sha256 bytes : bytes
+
+  type mixer_stored_record [@gen_wf] = Smsr bytes nat | Nmsr
+
+  predicate is_mixer_stored_record_wf (r: mixer_stored_record) =
+    match r with
+    | Nmsr -> true
+    | Smsr _b n -> n >= 0
+    end
+
+  type splitter_state [@gen_wf] = Sss (list address) | Nss
+
+  predicate is_splitter_state_wf (_addr : splitter_state) = true
+
+  function sum_of : (map bytes mixer_stored_record) -> nat
+
+  axiom SumE : sum_of (const Nmsr) = 0
+
+  axiom SumI : forall m k v0 v1.
+    let old_value = match m[k] with Smsr _ n -> n | Nmsr -> 0 end in
+    old_value >= 0 /\ (* これ上手いこと自動でできない？ *)
+    sum_of m[k <- Smsr v0 v1] = sum_of m + v1 - old_value
+
+  axiom SumI' : forall m k.
+    let old_value = match m[k] with Smsr _ n -> n | Nmsr -> 0 end in
+    sum_of m[k <- Nmsr] = sum_of m - old_value
+end
+
+scope Postambles
+  predicate addr_inv (c : ctx) =
+    c.splitter_storage.Splitter.mixer_addr = Mixer.addr
+
+  predicate storage_inv (c : ctx) =
+    c.splitter_balance >= 0 /\
+    sum_of c.mixer_storage.Mixer.balances <= c.mixer_balance /\
+    addr_inv c
+
+  predicate splitter_storage_inv (c : ctx) =
+    c.splitter_storage.Splitter.state = Nss
+end
+
+scope Unknown
+  predicate pre (c : ctx) =
+    storage_inv c /\
+    splitter_storage_inv c
+
+  predicate post (c : ctx) (c' : ctx) =
+    storage_inv c' /\
+    splitter_storage_inv c'
+
+  scope Entrypoint
+    predicate default unit
+  end
+
+end
+
+scope Mixer
+  type storage [@gen_wf] = {
+    balances : big_map bytes mixer_stored_record;
+  }
+
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
+    storage_inv c /\
+    match gp with
+    | Gp'Mixer'withdraw key passcode ->
+        (st.sender <> Splitter.addr -> c.splitter_storage.Splitter.state = Nss) /\
+        (st.sender = Splitter.addr -> st.amount = 0)
+    | Gp'Mixer'deposit _ _ _ -> c.splitter_storage.Splitter.state = Nss
+    | _ -> false
+    end
+
+  predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    storage_inv c' /\
+    match gp with
+    | Gp'Mixer'withdraw key passcode ->
+        (match c.mixer_storage.Mixer.balances[key] with
+        | Nmsr -> false
+        | Smsr hash token ->
+            sha256 (concat key passcode) = hash ->
+            c.splitter_storage.Splitter.state = Sss (Cons Implicit0.addr Nil) ->
+            c'.mixer_storage.Mixer.balances = c.mixer_storage.Mixer.balances[key <- Nmsr] /\
+            c.mixer_balance = c'.mixer_balance + token
+        end) /\
+
+        (st.sender <> Splitter.addr ->
+        c.splitter_storage.Splitter.state = c'.splitter_storage.Splitter.state) /\
+        (st.sender = Splitter.addr ->
+        c'.splitter_storage.Splitter.state = Nss)
+    | Gp'Mixer'deposit _ _ _ ->
+        c.splitter_storage.Splitter.state = c'.splitter_storage.Splitter.state
+    | _ -> false
+    end
+
+  let upper_ops = 1
+
+  scope Spec
+    predicate deposit (st : step) (key : bytes) (hash : bytes) (_:unit) (s : storage) (ops : list operation) (s' : storage) =
+      let b = s.balances[key <- Smsr hash st.amount] in
+      s' = { s with balances = b } /\
+      ops = Nil
+
+    predicate withdraw (st : step) (key : bytes) (passcode : bytes) (s : storage) (ops : list operation) (s' : storage) =
+      let b = s.balances in
+      match b[key] with
+      | Nmsr -> false
+      | Smsr hash token ->
+          if sha256 (concat key passcode) = hash
+          then
+            s' = { s with balances = b[key <- Nmsr] } /\
+            ops = Cons (Xfer (Gp'Unknown'default ()) token st.sender) Nil
+          else
+            s' = s /\
+            ops = ops = Cons (Xfer (Gp'Unknown'default ()) 0 st.sender) Nil
+      end
+    
+  end
+
+end
+
+scope Splitter
+  type storage [@gen_wf] = {
+    mixer_addr : address;
+    state : splitter_state
+  }
+
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
+    storage_inv c /\
+    match gp with
+    | Gp'Splitter'split key passcode dests ->
+        c.splitter_storage.Splitter.state = Nss /\
+        (st.sender = Implicit0.addr ->
+         dests = Cons Implicit0.addr Nil)
+    | Gp'Splitter'default () ->
+        st.sender <> Mixer.addr -> c.splitter_storage.Splitter.state = Nss
+    | _ -> false
+    end
+
+  predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    storage_inv c' /\
+    c'.splitter_storage.Splitter.state = Nss /\
+    match gp with
+    | Gp'Splitter'split key passcode dests ->
+        (match c.mixer_storage.Mixer.balances[key] with
+        | Nmsr -> false
+        | Smsr hash token ->
+            sha256 (concat key passcode) = hash ->
+            st.sender = Implicit0.addr ->
+            c'.mixer_storage.Mixer.balances = c.mixer_storage.Mixer.balances[key <- Nmsr] /\
+            c.mixer_balance = c'.mixer_balance + token
+        end)
+    | Gp'Splitter'default () ->
+        (c.splitter_storage.Splitter.state = Sss (Cons Implicit0.addr Nil) \/
+         c.splitter_storage.Splitter.state = Nss) ->
+        (c.mixer_balance = c'.mixer_balance /\
+         c.mixer_storage = c'.mixer_storage)
+    | _ -> false
+    end
+
+  let upper_ops = 3
+
+  scope Spec
+    predicate split (st : step) (key : bytes) (passcode : bytes) (dests : list address) (s : storage) (ops : list operation) (s' : storage) =
+      ops = Cons (Xfer (Gp'Mixer'withdraw key passcode) 0 s.mixer_addr) Nil /\
+      s.state = Nss /\
+      s'.state = Sss dests /\
+      s.mixer_addr = s'.mixer_addr
+    
+    predicate default (st : step) (_p : unit) (s : storage) (ops : list operation) (s' : storage) =
+      st.sender = s.mixer_addr /\
+      match s.state with
+      | Nss ->
+          ops = Nil /\
+          s' = s
+      | Sss dests ->
+          let d = div st.amount (length dests) in
+          (* let c_op addr = Xfer (Gp'Unknown'default ()) d addr in (* なぜか使うと通らなくなる *) *)
+          ops = (* 3回展開 *)
+          (* (match dests with
+          | Nil -> Nil
+          (* | Cons addr0 tl -> Cons (Xfer (Gp'Unknown'default ()) d addr0) Nil *)
+          | Cons addr0 tl -> Cons (c_op addr0) Nil
+          end) *)
+          (match dests with
+          | Nil -> Nil
+          | Cons addr0 t ->
+              Cons (Xfer (Gp'Unknown'default ()) d addr0)
+              (match dests with
+              | Nil -> Nil
+              | Cons addr1 t ->
+                  Cons (Xfer (Gp'Unknown'default ()) d addr1)
+                  (match dests with
+                  | Nil -> Nil
+                  | Cons addr2 _ -> Cons (Xfer (Gp'Unknown'default ()) d addr2) Nil
+                  end)
+              end)
+          end) /\
+          (* ops = map c_op dests /\ *)
+          s' = { s with state = Nss }
+      end
+  end
+end
+
+
+scope Implicit0
+  (* withdraw を呼ぶ人 *)
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
+    storage_inv c /\
+    splitter_storage_inv c /\
+    match gp with
+    | Gp'Implicit0'send _ _ -> true
+    | Gp'Implicit0'default () -> true
+    | _ -> false
+    end
+
+  predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    storage_inv c' /\
+    splitter_storage_inv c' /\
+    match gp with
+    | Gp'Implicit0'send key passcode ->
+        (match c.mixer_storage.Mixer.balances[key] with
+        | Nmsr -> false
+        | Smsr hash token ->
+            sha256 (concat key passcode) = hash ->
+            c'.mixer_storage.Mixer.balances[key] = Nmsr /\
+            c.mixer_balance = c'.mixer_balance + token
+        end)
+    | Gp'Implicit0'default () ->
+        c.mixer_balance = c'.mixer_balance /\
+        c.mixer_storage = c'.mixer_storage
+    | _ -> false
+    end
+  
+  type storage [@gen_wf] = unit
+
+  let upper_ops = 1
+
+  scope Spec
+    predicate send (st : step) (key : bytes) (passcode : bytes) (s : storage) (ops : list operation) (s' : storage) =
+      ops = Cons (Xfer (Gp'Splitter'split key passcode (Cons st.self Nil)) 0 Splitter.addr) Nil
+    
+    predicate default (st : step) (_p : unit) (s : storage) (ops : list operation) (s' : storage) =
+      ops = Nil
+  end
+end
