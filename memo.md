@@ -4,6 +4,8 @@
     - tezos だと SalsaDAO?
   - stablecoin
     - 担保付き債務ポジション（CDP = Collateralized Debt Position）
+- digital asset の通貨を介しない swap
+
 
 # 課題？
 - Michelson と tzw の連携
@@ -33,6 +35,7 @@
   - upper_ops の制限もあるし, なぜか証明が死ぬ
 - contract.addr が使えたり使えなかったり...?
   - Spec だと使えないかもしれない
+- 3 以上の tuple に対して wf が生成されなくなってる？ `unbound function or predicate symbol 'is__tuple3_wf`
 
 # チラシの裏
 - 対応していない構文含むtzwのエラーの場所がわからない
