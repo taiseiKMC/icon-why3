@@ -36,6 +36,7 @@
 - contract.addr が使えたり使えなかったり...?
   - Spec だと使えないかもしれない
 - 3 以上の tuple に対して wf が生成されなくなってる？ `unbound function or predicate symbol 'is__tuple3_wf`
+- 違うコントラクトを定義しても, (API が同じに近いと? 詳しい条件は分からないが) addr が同じ可能性があると判定される...
 
 # チラシの裏
 - 対応していない構文含むtzwのエラーの場所がわからない
