@@ -4,18 +4,20 @@ scope Preambles
   use list.Map
   use list.Quant
 
-  function sum_of : (map bytes (option nat)) -> nat
+  function sum_of : (map address nat) -> nat
 
-  axiom SumE : sum_of (const None) = 0
+  axiom SumE : sum_of (const 0) = 0
 
   axiom SumI : forall m k v.
-    let old_value = match m[k] with Some n -> n | None -> 0 end in
-    old_value >= 0 /\ (* これ上手いこと自動でできない？ *)
-    sum_of m[k <- Some v] = sum_of m + v - old_value
-
-  axiom SumI' : forall m k.
-    let old_value = match m[k] with Some n -> n | None -> 0 end in
-    sum_of m[k <- None] = sum_of m - old_value
+    v >= 0 ->
+    m[k] >= 0 /\ (* これ上手いこと自動でできない？ *)
+    sum_of m[k <- v] = sum_of m + v - m[k]
+  
+  (* axiom SumI' : forall b a k v.
+    let m = b[a] in
+    v >= 0 ->
+    m[k] >= 0 /\
+    sum_of m[k <- v] = sum_of m + v - m[k] *)
 end
 
 scope Postambles
@@ -38,12 +40,17 @@ scope Postambles
     (* c'.token_storage.Token.balances[token_id][from_] + amount = c.token_storage.Token.balances[token_id][from_] /\
       c'.token_storage.Token.balances[token_id][to_] = c.token_storage.Token.balances[token_id][to_] + amount
      *)
+
+  predicate balances_invariant (c : ctx) (c' : ctx) = true
+    (* forall a. sum_of c.token_storage.Token.balances[a] = sum_of c'.token_storage.Token.balances[a]
+    (* 正しいが自動では示せない *) *)
 end
 
 scope Unknown
   predicate pre (c : ctx) = true
 
-  predicate post (c : ctx) (c' : ctx) = true
+  predicate post (c : ctx) (c' : ctx) =
+    balances_invariant c c'
 
   scope Entrypoint
     predicate default unit
@@ -58,37 +65,37 @@ scope Swap
   predicate pre (st : step) (gp : gparam) (c : ctx) = true
 
   predicate post (_st : step) (gp : gparam) (c : ctx) (c' : ctx) =
-  match gp with
-  | Gp'Swap'swap a_addr a_token_id a_amount b_addr b_token_id b_amount ->
-      c.token_storage.Token.operators[a_token_id][a_addr][Swap.addr] /\
-      c.token_storage.Token.operators[b_token_id][b_addr][Swap.addr] /\
-      (a_token_id <> b_token_id ->
+    balances_invariant c c' /\
+    match gp with
+    | Gp'Swap'swap a_addr a_token_id a_amount b_addr b_token_id b_amount ->
+        c.token_storage.Token.operators[a_token_id][a_addr][Swap.addr] /\
+        c.token_storage.Token.operators[b_token_id][b_addr][Swap.addr] /\
+        ( let balances = c.token_storage.Token.balances in
+          let balances' = c'.token_storage.Token.balances in
 
-        let balances = c.token_storage.Token.balances in
-        let balances' = c'.token_storage.Token.balances in
+          let b = balances[a_token_id] in
+          let to_balance = b[b_addr] + a_amount in
+          let b = b[b_addr <- to_balance] in
+          let b' = balances'[a_token_id] in
+          let from_balance = b'[a_addr] + a_amount in
+          let b' = b'[a_addr <- from_balance] in
 
-        let b = balances[a_token_id] in
-        let to_balance = b[b_addr] + a_amount in
-        let b = b[b_addr <- to_balance] in
-        let b' = balances'[a_token_id] in
-        let from_balance = b'[a_addr] + a_amount in
-        let b' = b'[a_addr <- from_balance] in
-
-        let balances = balances[a_token_id <- b] in
-        let balances' = balances'[a_token_id <- b'] in
-        
-        let b = balances[b_token_id] in
-        let to_balance = b[a_addr] + b_amount in
-        let b = b[a_addr <- to_balance] in
-        let b' = balances'[b_token_id] in
-        let from_balance = b'[b_addr] + b_amount in
-        let b' = b'[b_addr <- from_balance] in
-        balances'[b_token_id <- b'] = balances[b_token_id <- b]
-        
-        (* (update_balance a_addr b_addr a_token_id a_amount c c'/\
-        update_balance b_addr a_addr b_token_id b_amount c c') *))
-  | _ -> false
-  end
+          let balances = balances[a_token_id <- b] in
+          let balances' = balances'[a_token_id <- b'] in
+          
+          let b = balances[b_token_id] in
+          let to_balance = b[a_addr] + b_amount in
+          let b = b[a_addr <- to_balance] in
+          let b' = balances'[b_token_id] in
+          let from_balance = b'[b_addr] + b_amount in
+          let b' = b'[b_addr <- from_balance] in
+          balances'[b_token_id <- b'] = balances[b_token_id <- b]
+          
+          (* (update_balance a_addr b_addr a_token_id a_amount c c'/\
+          update_balance b_addr a_addr b_token_id b_amount c c') *)
+        )
+    | _ -> false
+    end
 
   let upper_ops = 2
 
@@ -104,7 +111,7 @@ scope Swap
       (s : storage)
       (ops : list operation)
       (s' : storage) =
-      a_token_id <> b_token_id /\ (* for simplicity *)
+      (* a_token_id <> b_token_id /\ (* for simplicity *) *)
       a_addr <> self st /\
       b_addr <> self st /\
       let op0 = Xfer (Gp'Token'transfer a_addr b_addr a_token_id a_amount) 0 Token.addr in
@@ -124,6 +131,7 @@ scope Token
   predicate pre (st : step) (gp : gparam) (c : ctx) = true
 
   predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    balances_invariant c c' /\
     match gp with
     | Gp'Token'transfer from_ to_ token_id amount ->
         (from_ = sender st \/ c.token_storage.Token.operators[token_id][from_][sender st]) /\
@@ -158,9 +166,6 @@ scope Token
       let from_balance = b'[from_] + amount in
       let b' = b'[from_ <- from_balance] in
       balances'[token_id <- b'] = balances[token_id <- b]
-
-      (* s'.balances[token_id][from_] + amount = s.balances[token_id][from_] /\
-      s'.balances[token_id][to_] = s.balances[token_id][to_] + amount *)
 
   predicate update_operator
     (st : step)
