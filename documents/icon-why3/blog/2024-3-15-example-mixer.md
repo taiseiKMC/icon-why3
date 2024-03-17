@@ -271,7 +271,7 @@ assume the modified `Mixer.withdraw` like below
 entrypoint withdraw (key : bytes) (passcode : bytes)
 {
   match balances.find_opt(key) with
-  | None -> assert false
+  | None -> [] (* assert false *)
   | Some (h, b) ->
       if h = sha256 (key @ passcode) then
         balances.remove(key);
@@ -343,7 +343,7 @@ scope Preambles
 
   axiom SumI : forall m k v0 v1.
     let old_value = match m[k] with Some (_, n) -> n | None -> 0 end in
-    old_value >= 0 /\ (* Should be given by hands *)
+    old_value >= 0 /\ (* Needed to be given by hand *)
     sum_of m[k <- Some (v0, v1)] = sum_of m + v1 - old_value
 
   axiom SumI' : forall m k.
@@ -363,6 +363,20 @@ scope Postambles
 
   predicate splitter_storage_inv (c : ctx) =
     c.splitter_storage.Splitter.state = None
+
+  predicate mixer_balance_cond (key : bytes) (passcode : bytes) (c : ctx) (c' : ctx) =
+    match c.mixer_storage.Mixer.balances[key] with
+    | None ->
+        c'.mixer_storage.Mixer.balances = c.mixer_storage.Mixer.balances /\
+        c.mixer_balance = c'.mixer_balance
+    | Some (hash, token) ->
+        (sha256 (concat key passcode) = hash ->
+        c'.mixer_storage.Mixer.balances = c.mixer_storage.Mixer.balances[key <- None] /\
+        c.mixer_balance = c'.mixer_balance + token) /\
+        (sha256 (concat key passcode) <> hash ->
+        c'.mixer_storage.Mixer.balances = c.mixer_storage.Mixer.balances /\
+        c.mixer_balance = c'.mixer_balance)
+    end
 end
 
 scope Unknown
@@ -400,14 +414,8 @@ scope Mixer
     splitter_storage_inv c' /\
     match gp with
     | Gp'Mixer'withdraw key passcode ->
-        (match c.mixer_storage.Mixer.balances[key] with
-        | None -> false
-        | Some (hash, token) ->
-            sha256 (concat key passcode) = hash ->
-            c.splitter_storage.Splitter.state = Some (Cons Implicit0.addr Nil) ->
-            c'.mixer_storage.Mixer.balances = c.mixer_storage.Mixer.balances[key <- None] /\
-            c.mixer_balance = c'.mixer_balance + token
-        end)
+        c.splitter_storage.Splitter.state = Some (Cons Implicit0.addr Nil) ->
+        mixer_balance_cond key passcode c c'
     | Gp'Mixer'deposit _ _ -> true
     | _ -> false
     end
@@ -432,16 +440,16 @@ scope Mixer
 
     predicate withdraw (st : step) (key : bytes) (passcode : bytes) (s : storage) (ops : list operation) (s' : storage) =
       let b = s.balances in
+      let xfer_nothing = s' = s /\ ops = Cons (Xfer (Gp'Unknown'default ()) 0 st.sender) Nil in
       match b[key] with
-      | None -> false
+      | None -> xfer_nothing
       | Some (hash, token) ->
           if sha256 (concat key passcode) = hash
           then
             s' = { s with balances = b[key <- None] } /\
             ops = Cons (Xfer (Gp'Unknown'default ()) token st.sender) Nil
           else
-            s' = s /\
-            ops = Cons (Xfer (Gp'Unknown'default ()) 0 st.sender) Nil
+            xfer_nothing
       end
     
   end
@@ -470,14 +478,8 @@ scope Splitter
     splitter_storage_inv c' /\
     match gp with
     | Gp'Splitter'split key passcode dests ->
-        (match c.mixer_storage.Mixer.balances[key] with
-        | None -> false
-        | Some (hash, token) ->
-            sha256 (concat key passcode) = hash ->
-            st.sender = Implicit0.addr ->
-            c'.mixer_storage.Mixer.balances = c.mixer_storage.Mixer.balances[key <- None] /\
-            c.mixer_balance = c'.mixer_balance + token
-        end)
+        st.sender = Implicit0.addr ->
+        mixer_balance_cond key passcode c c'
     | Gp'Splitter'default () ->
         (c.splitter_storage.Splitter.state = Some (Cons Implicit0.addr Nil) \/
          c.splitter_storage.Splitter.state = None) ->
@@ -538,13 +540,7 @@ scope Implicit0
     splitter_storage_inv c' /\
     match gp with
     | Gp'Implicit0'send key passcode ->
-        (match c.mixer_storage.Mixer.balances[key] with
-        | None -> false
-        | Some (hash, token) ->
-            sha256 (concat key passcode) = hash ->
-            c'.mixer_storage.Mixer.balances[key] = None /\
-            c.mixer_balance = c'.mixer_balance + token
-        end)
+        mixer_balance_cond key passcode c c'
     | Gp'Implicit0'default () ->
         c.mixer_balance = c'.mixer_balance /\
         c.mixer_storage = c'.mixer_storage
