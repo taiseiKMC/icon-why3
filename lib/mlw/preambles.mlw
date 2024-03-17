@@ -57,10 +57,6 @@ type timestamp = int
 
 predicate is_timestamp_wf (_ : address) = true
 
-type contract 'a = int
-
-predicate is_contract_wf (_ : 'a -> bool) (_ : contract 'a) = true
-
 type or 'a 'b = Left 'a | Right 'b
 
 predicate is_or_wf (is_a_wf : 'a -> bool) (is_b_wf : 'b -> bool) (ab : or 'a 'b) =
