@@ -43,6 +43,8 @@ let storage_ty_ident = ident "storage"
 let storage_wf_ident = ident "is_storage_wf"
 let gparam_ty_ident = ident "gparam"
 let operation_ty_ident = ident "operation"
+let entrypoint_ty_ident = ident "entrypoint"
+let contract_ty_ident = ident "contract"
 let gas_ident = ident "g"
 let terminate_ident = ident "Terminate"
 let insufficient_mutez_ident = ident "Insufficient_mutez"
@@ -414,6 +416,13 @@ module Generator (D : Desc) = struct
   let ctx_pty = PTtyapp (qid ctx_ty_ident, [])
   let step_pty = PTtyapp (qid step_ty_ident, [])
   let gparam_pty = PTtyapp (qid gparam_ty_ident, [])
+
+  let entrypoint_pty =
+    PTscope
+      ( Qdot (qid @@ ident "ICon", ident "Contract"),
+        PTtyapp (qid entrypoint_ty_ident, []) )
+
+  let contract_pty = PTtyapp (qid contract_ty_ident, [])
   let storage_pty_of c = PTtyapp (qid_of c storage_ty_ident, [])
   let qid_param_wf_of (c : contract) : qualid = qid_of c param_wf_ident
   let qid_storage_wf_of (c : contract) : qualid = qid_of c storage_wf_ident
@@ -549,7 +558,6 @@ module Generator (D : Desc) = struct
             let gp = fresh_id () in
             let amt = fresh_id () in
             let dst = fresh_id () in
-            let entp : ident = ident "entp" in
             let+ ctx =
               expr
               @@ Ematch
@@ -559,12 +567,7 @@ module Generator (D : Desc) = struct
                        ( pat
                          @@ Papp
                               ( qualid [ "Xfer" ],
-                                [
-                                  pat_var gp;
-                                  pat_var amt;
-                                  pat_var dst;
-                                  pat_var entp;
-                                ] ),
+                                [ pat_var gp; pat_var amt; pat_var dst ] ),
                          wrap_assume
                            ~assumption:(sort_wf Sort.S_mutez @@ E.mk_var amt)
                          @@ E.mk_if
@@ -579,14 +582,23 @@ module Generator (D : Desc) = struct
                                 mk
                                   ~source:(source @@ E.var_of_binder st)
                                   ~sender:(self @@ E.var_of_binder st)
-                                  ~self:(E.mk_var dst)
-                                  ~entrypoint:(E.mk_var entp)
+                                  ~self:
+                                    (eapp (qualid [ "ct_addr" ])
+                                       [ E.var_of_binder (mk_binder dst) ])
+                                  ~entrypoint:
+                                    (eapp (qualid [ "ct_ep" ])
+                                       [ E.var_of_binder (mk_binder dst) ])
                                   ~amount:(E.mk_var amt)
                                   ~balance:
                                     (M.fold
                                        (fun _ c e ->
                                          E.mk_if
-                                           (is_contract_of c @@ E.mk_var dst)
+                                           (is_contract_of c
+                                           @@ eapp (qualid [ "ct_addr" ])
+                                                [
+                                                  E.var_of_binder
+                                                    (mk_binder dst);
+                                                ])
                                            (E.mk_bin (balance_of c ctx) "+"
                                               (E.mk_var amt))
                                            e)
@@ -760,14 +772,7 @@ module Generator (D : Desc) = struct
               [
                 (Loc.dummy_position, None, false, gparam_pty);
                 (Loc.dummy_position, None, false, Sort.pty_of_sort Sort.S_mutez);
-                ( Loc.dummy_position,
-                  None,
-                  false,
-                  Sort.pty_of_sort Sort.S_address );
-                ( Loc.dummy_position,
-                  None,
-                  false,
-                  PTtyapp (qualid [ "ICon"; "Contract"; "entrypoint" ], []) );
+                (Loc.dummy_position, None, false, contract_pty);
               ] );
             ( Loc.dummy_position,
               sdel_cstr_ident,
@@ -921,6 +926,40 @@ module ICon_Gp = struct
                    (term.term_loc, Failure "ICon.Gp takes only 1 argument")))
       | _ -> default_mapper.term mapper term
     in
+
+    let convert_term : Ptree_mapper.mapper -> term -> term =
+      let convert (sub : Ptree_mapper.mapper) term =
+        let gen_contract ep addr =
+          let ct_ep = Tident (entrypoint_qualid ep) in
+          Trecord
+            [
+              (Qident (ident "ct_ep"), { term with term_desc = ct_ep });
+              (Qident (ident "ct_addr"), sub.term sub addr);
+            ]
+        in
+        let term_desc =
+          match term.term_desc with
+          | Tapply
+              ( {
+                  term_desc = Tident (Qdot (Qdot (Qident icon, contract), ep));
+                  _;
+                },
+                addr )
+            when icon.id_str = "ICon" && contract.id_str = "Contract" ->
+              gen_contract ep.id_str addr
+          | Tapply
+              ({ term_desc = Tident (Qdot (Qident icon, contract)); _ }, addr)
+            when icon.id_str = "ICon" && contract.id_str = "Contract" ->
+              gen_contract "default" addr
+          | _ -> (default_mapper.term sub term).term_desc
+        in
+        { term with term_desc }
+      in
+      fun mapper term ->
+        let term = convert_term mapper term in
+        convert mapper term
+    in
+
     let convert_pattern mapper p =
       let rec convert_icon_gp ~loc p =
         match p.pat_desc with
@@ -954,6 +993,7 @@ module ICon_Gp = struct
           )
       | _ -> default_mapper.pattern mapper p
     in
+
     try
       return
       @@ apply_term t
@@ -1328,6 +1368,35 @@ let convert_mlw (tzw : Tzw.t) =
   let module G = Generator (struct
     let desc = { d_contracts; d_whyml = [] }
   end) in
+  let contract_ty_def =
+    {
+      td_loc = Loc.dummy_position;
+      td_ident = contract_ty_ident;
+      td_params = [];
+      td_vis = Public;
+      td_mut = false;
+      td_inv = [];
+      td_wit = None;
+      td_def =
+        TDrecord
+          [
+            {
+              f_loc = Loc.dummy_position;
+              f_ident = ident "ct_ep";
+              f_pty = G.entrypoint_pty;
+              f_mutable = false;
+              f_ghost = false;
+            };
+            {
+              f_loc = Loc.dummy_position;
+              f_ident = ident "ct_addr";
+              f_pty = Sort.pty_of_sort S_address;
+              f_mutable = false;
+              f_ghost = false;
+            };
+          ];
+    }
+  in
   let* postambles =
     List.map_e (ICon_Gp.convert_decl sort_env) tzw.tzw_postambles
   in
@@ -1354,6 +1423,7 @@ let convert_mlw (tzw : Tzw.t) =
               ] );
         ];
         (* contents of `mlw/step.mlw` *)
+        [ (* type contract = .. *) Dtype [ contract_ty_def ] ];
         step;
         [
           Dtype

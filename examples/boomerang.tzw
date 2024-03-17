@@ -27,7 +27,7 @@ scope Boomerang
 
   predicate default (st : step) (_p : unit) (_s : storage) (ops : list operation) (_s' : storage) =
     (st.amount = 0 -> ops = Nil) /\
-    (st.amount > 0 -> ops = Cons (Xfer (ICon.Gp (() : unit)) st.amount st.sender ICon.Contract.Default) Nil)
+    (st.amount > 0 -> ops = Cons (Xfer (ICon.Gp (() : unit)) st.amount (ICon.Contract st.sender)) Nil)
   end
 
 end
