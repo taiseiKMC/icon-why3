@@ -43,6 +43,8 @@ let storage_ty_ident = ident "storage"
 let storage_wf_ident = ident "is_storage_wf"
 let gparam_ty_ident = ident "gparam"
 let operation_ty_ident = ident "operation"
+let entrypoint_ty_ident = ident "entrypoint"
+let contract_ty_ident = ident "contract"
 let gas_ident = ident "g"
 let terminate_ident = ident "Terminate"
 let insufficient_mutez_ident = ident "Insufficient_mutez"
@@ -411,6 +413,8 @@ module Generator (D : Desc) = struct
   let ctx_pty = PTtyapp (qid ctx_ty_ident, [])
   let step_pty = PTtyapp (qid step_ty_ident, [])
   let gparam_pty = PTtyapp (qid gparam_ty_ident, [])
+  let entrypoint_pty = PTtyapp (qid entrypoint_ty_ident, [])
+  let contract_pty = PTtyapp (qid contract_ty_ident, [])
   let storage_pty_of c = PTtyapp (qid_of c storage_ty_ident, [])
   let qid_param_wf_of (c : contract) : qualid = qid_of c param_wf_ident
   let qid_storage_wf_of (c : contract) : qualid = qid_of c storage_wf_ident
@@ -564,8 +568,12 @@ module Generator (D : Desc) = struct
                                 mk
                                   ~source:(source @@ E.var_of_binder st)
                                   ~sender:(self @@ E.var_of_binder st)
-                                  ~self:(E.mk_var dst)
-                                  ~entrypoint:(E.mk_var entp)
+                                  ~self:
+                                    (eapp (qualid [ "ct_addr" ])
+                                       [ E.var_of_binder (mk_binder dst) ])
+                                  ~entrypoint:
+                                    (eapp (qualid [ "ct_ep" ])
+                                       [ E.var_of_binder (mk_binder dst) ])
                                   ~amount:(E.mk_var amt)
                                   ~level:(level @@ E.var_of_binder st)
                                   ~now:(now @@ E.var_of_binder st))
@@ -731,6 +739,7 @@ module Generator (D : Desc) = struct
                   None,
                   false,
                   PTtyapp (qualid [ "ICon"; "Contract"; "entrypoint" ], []) );
+                (* (Loc.dummy_position, None, false, contract_pty); *)
               ] );
             ( Loc.dummy_position,
               sdel_cstr_ident,
@@ -845,6 +854,11 @@ let sort_of_pty' env pty =
 let gen_gparam_cstr (s : Sort.t) : string =
   Format.sprintf "Gp'0%s" (mangle_sort s)
 
+(** Generate the global parameter constructor name for entrypoint [ep] of type [s] in contract [ct]. *)
+let gen_entrypoint_cstr (ct : string) (ep : string) (_s : Sort.t list) : string
+    =
+  Format.sprintf "Ep'0%s'0%s" ct ep
+
 let entrypoint_qualid epn =
   qualid [ "ICon"; "Contract"; String.capitalize_ascii epn ]
 
@@ -931,6 +945,181 @@ module ICon_Gp = struct
       =
     let* ld_def = Option.map_e (convert_term sort_env) logic_decl.ld_def in
     return { logic_decl with ld_def }
+
+  let construct_contract (epp : Sort.t list StringMap.t StringMap.t)
+      (t : Ptree.term) : Ptree.term iresult =
+    let string_of_qident qid =
+      let rec aux qid s =
+        match qid with
+        | Qident id -> id.id_str :: s
+        | Qdot (qid, id) -> aux qid (id.id_str :: s)
+      in
+      let s = aux qid [] in
+      String.concat "." s
+    in
+    let convert (sub : Ptree_mapper.mapper) term =
+      let term_desc =
+        match term.term_desc with
+        | Tidapp (Qdot (Qident icon, contract), terms)
+          when icon.id_str = "Icon" && contract.id_str = "Contract" ->
+            let cn, ep, addr =
+              match terms with
+              | [ { term_desc = Tident (Qdot (Qident ct, ep)); _ }; addr ] ->
+                  (ct.id_str, ep.id_str, addr)
+              | [ addr ] -> ("Unknown", "default", addr)
+              | _ ->
+                  raise
+                  @@ Loc.Located
+                       ( term.term_loc,
+                         Failure
+                           (Format.sprintf
+                              "The arguments of Icon.Contract is invalid") )
+            in
+
+            let cn_epp =
+              try StringMap.find cn epp
+              with Not_found ->
+                raise
+                @@ Loc.Located
+                     ( term.term_loc,
+                       Failure (Format.sprintf "%s is not declared" cn) )
+            in
+            let _s =
+              try StringMap.find ep cn_epp
+              with Not_found ->
+                raise
+                @@ Loc.Located
+                     ( term.term_loc,
+                       Failure (Format.sprintf "%s doesn't have %s" cn ep) )
+            in
+            let ct_ep =
+              Tident (Qident (sub.ident (ident (gen_entrypoint_cstr cn ep _s))))
+            in
+            Trecord
+              [
+                (Qident (ident "ct_ep"), { term with term_desc = ct_ep });
+                (Qident (ident "ct_addr"), sub.term sub addr);
+              ]
+        | Tapply
+            ( {
+                term_desc =
+                  Tapply
+                    ( { term_desc = Tident (Qdot (Qident icon, contract)); _ },
+                      { term_desc = Tident (Qdot (Qident ct, ep)); _ } );
+                _;
+              },
+              addr )
+          when icon.id_str = "Icon" && contract.id_str = "Contract" ->
+            let cn, ep, addr = (ct.id_str, ep.id_str, addr) in
+            let cn_epp =
+              try StringMap.find cn epp
+              with Not_found ->
+                raise
+                @@ Loc.Located
+                     ( term.term_loc,
+                       Failure (Format.sprintf "%s is not declared" cn) )
+            in
+            let _s =
+              try StringMap.find ep cn_epp
+              with Not_found ->
+                raise
+                @@ Loc.Located
+                     ( term.term_loc,
+                       Failure (Format.sprintf "%s doesn't have %s" cn ep) )
+            in
+            let ct_ep =
+              Tident (Qident (sub.ident (ident (gen_entrypoint_cstr cn ep _s))))
+            in
+            Trecord
+              [
+                (Qident (ident "ct_ep"), { term with term_desc = ct_ep });
+                (Qident (ident "ct_addr"), sub.term sub addr);
+              ]
+        | Tapply ({ term_desc = Tident (Qdot (Qident icon, contract)); _ }, addr)
+          when icon.id_str = "Icon" && contract.id_str = "Contract" ->
+            let cn, ep, addr = ("Unknown", "default", addr) in
+            let cn_epp =
+              try StringMap.find cn epp
+              with Not_found ->
+                raise
+                @@ Loc.Located
+                     ( term.term_loc,
+                       Failure (Format.sprintf "%s is not declared" cn) )
+            in
+            let _s =
+              try StringMap.find ep cn_epp
+              with Not_found ->
+                raise
+                @@ Loc.Located
+                     ( term.term_loc,
+                       Failure (Format.sprintf "%s doesn't have %s" cn ep) )
+            in
+            let ct_ep =
+              Tident (Qident (sub.ident (ident (gen_entrypoint_cstr cn ep _s))))
+            in
+            Trecord
+              [
+                (Qident (ident "ct_ep"), { term with term_desc = ct_ep });
+                (Qident (ident "ct_addr"), sub.term sub addr);
+              ]
+        | Ttrue -> Ttrue
+        | Tfalse -> Tfalse
+        | Tconst c -> Tconst c
+        | Tident qid -> Tident (sub.qualid sub qid)
+        | Tasref qid -> Tasref (sub.qualid sub qid)
+        | Tidapp (qid, ts) ->
+            Format.eprintf "Debug idapp:%s \n" (string_of_qident qid);
+            Tidapp (sub.qualid sub qid, List.map (sub.term sub) ts)
+        | Tapply (t1, t2) -> Tapply (sub.term sub t1, sub.term sub t2)
+        | Tinfix (t1, id, t2) ->
+            Tinfix (sub.term sub t1, sub.ident id, sub.term sub t2)
+        | Tinnfix (t1, id, t2) ->
+            Tinnfix (sub.term sub t1, sub.ident id, sub.term sub t2)
+        | Tbinop (t1, bop, t2) -> Tbinop (sub.term sub t1, bop, sub.term sub t2)
+        | Tbinnop (t1, bop, t2) ->
+            Tbinnop (sub.term sub t1, bop, sub.term sub t2)
+        | Tnot t -> Tnot (sub.term sub t)
+        | Tif (t1, t2, t3) ->
+            Tif (sub.term sub t1, sub.term sub t2, sub.term sub t3)
+        | Tquant (qop, binds, trig, t) ->
+            Tquant
+              ( qop,
+                binds,
+                List.map (List.map (sub.term sub)) trig,
+                sub.term sub t )
+        | Teps (id, pty, t) ->
+            Teps (sub.ident id, sub.pty sub pty, sub.term sub t)
+        | Tattr (attr, t) -> Tattr (attr, sub.term sub t)
+        | Tlet (id, t1, t2) ->
+            Tlet (sub.ident id, sub.term sub t1, sub.term sub t2)
+        | Tcase (t, cls) ->
+            Tcase
+              ( sub.term sub t,
+                List.map
+                  (fun (pat, t) -> (sub.pattern sub pat, sub.term sub t))
+                  cls )
+        | Tcast (t, pty) -> Tcast (sub.term sub t, sub.pty sub pty)
+        | Ttuple ts -> Ttuple (List.map (sub.term sub) ts)
+        | Trecord flds ->
+            Trecord
+              (List.map
+                 (fun (qid, t) -> (sub.qualid sub qid, sub.term sub t))
+                 flds)
+        | Tupdate (t, flds) ->
+            Tupdate
+              ( sub.term sub t,
+                List.map
+                  (fun (qid, t) -> (sub.qualid sub qid, sub.term sub t))
+                  flds )
+        | Tscope (qid, t) -> Tscope (sub.qualid sub qid, sub.term sub t)
+        | Tat (t, id) -> Tat (sub.term sub t, sub.ident id)
+      in
+      { term with term_desc }
+    in
+    let open Ptree_mapper in
+    try return @@ apply_term t { default_mapper with term = convert }
+    with Loc.Located (loc, Failure s) -> error_with ~loc "%s" s
+  [@@ocaml.warning "-21"]
 
   (* Only for functions and predicates for now *)
   let convert_decl sort_env (decl : decl) : decl iresult =
@@ -1139,6 +1328,37 @@ let gen_gparam (epp : Sort.t StringMap.t StringMap.t) =
     td_def;
   }
 
+let gen_contract (epp : Sort.t list StringMap.t StringMap.t) =
+  let module S = Set.Make (struct
+    type t = Loc.position * ident * param list
+
+    let compare = compare
+  end) in
+  let td_def =
+    TDalgebraic
+      (S.elements
+      @@ StringMap.fold
+           (fun ct ->
+             StringMap.fold (fun en s cstrs ->
+                 S.add
+                   ( Loc.dummy_position,
+                     Ptree_helpers.ident @@ gen_entrypoint_cstr ct en s,
+                     [] )
+                   cstrs))
+           epp
+      @@ S.singleton (Loc.dummy_position, ident "EpUnknown", []))
+  in
+  {
+    td_loc = Loc.dummy_position;
+    td_ident = entrypoint_ty_ident;
+    td_params = [];
+    td_vis = Public;
+    td_mut = false;
+    td_inv = [];
+    td_wit = None;
+    td_def;
+  }
+
 let parse_string s =
   let lexbuf = Lexing.from_string s in
   Lexer.parse_mlw_file lexbuf
@@ -1290,6 +1510,39 @@ let convert_mlw (tzw : Tzw.t) =
                 Dscope
                   (Loc.dummy_position, false, ident "Contract", entrypoint_def);
               ] );
+        ];
+        [
+          (* Dtype [ gen_contract epp ]; *)
+          (let contract_ty_def =
+             {
+               td_loc = Loc.dummy_position;
+               td_ident = contract_ty_ident;
+               td_params = [];
+               td_vis = Public;
+               td_mut = false;
+               td_inv = [];
+               td_wit = None;
+               td_def =
+                 TDrecord
+                   [
+                     {
+                       f_loc = Loc.dummy_position;
+                       f_ident = ident "ct_ep";
+                       f_pty = G.entrypoint_pty;
+                       f_mutable = false;
+                       f_ghost = false;
+                     };
+                     {
+                       f_loc = Loc.dummy_position;
+                       f_ident = ident "ct_addr";
+                       f_pty = Sort.pty_of_sort S_address;
+                       f_mutable = false;
+                       f_ghost = false;
+                     };
+                   ];
+             }
+           in
+           Dtype [ contract_ty_def ]);
         ];
         step;
         [

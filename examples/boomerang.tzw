@@ -3,7 +3,8 @@ scope Unknown
   predicate pre (_c : ctx) = true
 
   predicate post (c : ctx) (c' : ctx) =
-    c.boomerang_balance = c'.boomerang_balance
+    c.boomerang_balance = c'.boomerang_balance /\
+    Icon.Contract Boomerang.default Boomerang.addr <> Icon.Contract Unknown.default Boomerang.addr
 
   scope Entrypoint
 
