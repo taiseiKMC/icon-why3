@@ -65,4 +65,5 @@ jobs:
       - run: opam exec -- why3 prove -P z3 examples/boomerang_acc.tzw
       - run: opam exec -- why3 prove -P z3 examples/auction.tzw
       - run: opam exec -- why3 prove -P z3 examples/callback.tzw
+      - run: opam exec -- why3 prove -P z3 examples/test_balance.tzw
       - run: opam exec -- why3 prove -P z3 examples/dexter2/liquidity.tzw 

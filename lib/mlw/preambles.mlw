@@ -78,6 +78,7 @@ type step =
     sender: address;
     self: address;
     amount: mutez;
+    balance: mutez;
     level: nat;
     now: timestamp
   }
@@ -87,12 +88,14 @@ function mk_step
     (sender : address)
     (self : address)
     (amount : mutez)
+    (balance : mutez)
     (level : nat)
     (now : timestamp) : step =
   { source= source;
     sender= sender;
     self= self;
     amount= amount;
+    balance= balance;
     level= level;
     now= now }
 

@@ -1,0 +1,54 @@
+(*
+  `ctx.[contract_name]_balance` is the balance of the contract
+  without the amount of the current transfer.
+  `st.balance` corresponds to the `BALANCE` operation of Michelson,
+  including the amount of the current transfer.
+*)
+
+scope Postambles
+  predicate inv (c : ctx) =
+    c.a_storage = A.{ acc = c.a_balance; diff = 0 }
+end
+
+scope Unknown
+
+  predicate pre (c : ctx) = inv c
+
+  predicate post (_c : ctx) (c' : ctx) = inv c'
+
+  scope Entrypoint
+
+  predicate default unit
+
+  end
+
+end
+
+scope A
+
+  type storage [@gen_wf] = {
+    acc : mutez;
+    diff : mutez
+  }
+
+  predicate pre (_st : step) (_gp : gparam) (c : ctx) = inv c
+
+  predicate post (st : step) (_gp : gparam) (c : ctx) (c' : ctx) =
+    st.balance = c.a_balance + st.amount /\
+    c'.a_balance = c.a_balance + st.amount /\
+    inv c'
+
+  let upper_ops = 1
+
+  scope Spec
+
+    predicate default (st : step) (_p : unit) (s : storage) (ops : list operation) (s' : storage) =
+      let acc' = s.acc + st.amount in
+      let abs a b = if a > b then a - b else b - a in
+      s' = { acc = acc'; diff = s.diff + abs acc' st.balance } /\
+      ops = Nil
+
+  end
+
+end
+

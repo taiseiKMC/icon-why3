@@ -18,7 +18,7 @@ end
 
 scope Alice
 
-  type storage = address
+  type storage [@gen_wf] = address
 
   predicate pre (_st : step) (_gp : gparam) (c : ctx) = inv_pre c
 
@@ -39,7 +39,7 @@ end
 
 scope Bob
 
-  type storage = address
+  type storage [@gen_wf] = address
 
   predicate pre (_st : step) (_gp : gparam) (c : ctx) = inv_pre c
 
@@ -59,7 +59,7 @@ end
 
 scope Carol
 
-  type storage = address
+  type storage [@gen_wf] = address
 
   predicate pre (_st : step) (_gp : gparam) (c : ctx) = inv_pre c
 
