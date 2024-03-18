@@ -219,8 +219,7 @@ let parse_contract loc id ds =
         | Dlogic _ -> return (ostore, okont, oeps, opre, opost)
         | decl ->
             error_with ~loc "@[<2>unexpected declaration:@ %a@]"
-              (Mlw_printer.pp_decl ~attr:true)
-              decl)
+              Ptree_printer.pp_decl decl)
       (None, None, None, None, None)
       ds
   in

@@ -127,8 +127,7 @@ module T = struct
           Tbinnop (of_expr e1, Dterm.DTand, of_expr e2)
       | Eapply (e1, e2) -> Tapply (of_expr e1, of_expr e2)
       | _ ->
-          Format.eprintf "T.of_expr: unsupported: %a@."
-            (Mlw_printer.pp_expr ~attr:true).closed e;
+          Format.eprintf "T.of_expr: unsupported: %a@." Ptree_printer.pp_expr e;
           assert false
     in
     { term_desc; term_loc = e.expr_loc }
@@ -255,8 +254,7 @@ module Is_type_wf = struct
     | PTparen pty -> gen_expr pty
     | _ ->
         failwith
-          (Format.asprintf "is_type_wf: Unsupported type %a"
-             (Mlw_printer.pp_pty ~attr:true).closed pty)
+          (Format.asprintf "is_type_wf: Unsupported type %a" Ptree_printer.pp_pty pty)
 
   (* [is_type_wf e] *)
   let gen_apply pty e =
@@ -313,9 +311,7 @@ module Is_type_wf = struct
           in
           return @@ term @@ Tcase (term @@ Tident (qid v_id), cases)
       | _ ->
-          error_with ~loc "Unsupported %a@."
-            (Mlw_printer.pp_decl ~attr:true)
-            (Dtype [ type_decl ])
+          error_with ~loc "Unsupported %a@." Ptree_printer.pp_decl (Dtype [ type_decl ])
     in
     let v_param : param =
       ( Loc.dummy_position,
