@@ -1,10 +1,11 @@
 scope Preambles
   meta "algebraic:kept" type (nat, address)
   meta "algebraic:kept" type option (nat, address)
+end
 
-
+scope Midambles
   type poll [@gen_wf] = {
-    proposal : lambda unit operation; (* lambda unit (list operation) *)
+    proposal : lambda unit nat; (* lambda unit (list operation) *)
     author : address;
     votingStartBlock : nat;
     votingEndBlock : nat;
@@ -82,7 +83,7 @@ scope DAO
     *)
     predicate propose
       (st : step)
-      (proposalLambda : lambda unit operation)
+      (proposalLambda : lambda unit nat)
       (s : storage)
       (ops : list operation)
       (s' : storage) =
@@ -137,7 +138,8 @@ scope DAO
           let op = Xfer (ICon.Gp ((self st, poll.author, s.escrowAmount) : (address, address, nat))) 0 (ICon.Contract.transfer s.tokenAddress) in
           { s with poll = None } = s' /\
           ops = if yayVotesNeededForSuperMajority <= poll.yayVotes * 100
-                  then Cons op (Cons (poll.proposal ()) Nil) (* p.proposal *)
+                  then let _ = poll.proposal () in Cons op Nil
+                  (* then Cons op (Cons (poll.proposal ()) Nil) *)
                   else Cons op Nil
       end
 
