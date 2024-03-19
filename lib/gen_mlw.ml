@@ -1319,6 +1319,7 @@ let convert_mlw (tzw : Tzw.t) =
     | Decls ds -> return (ds @ tzw.tzw_preambles)
     | _ -> error_with "invalid prembles: preambles must be list of declarations"
   in
+  let* preambles = Is_type_wf.add_wfs preambles in
   let entrypoint_def =
     let epns : string list =
       StringSet.elements
