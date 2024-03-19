@@ -21,7 +21,7 @@ type t =
   | S_timestamp
   | S_mutez
   | S_address
-  | S_contract of t
+  | S_contract
   | S_operation
   | S_key
   | S_key_hash
@@ -66,7 +66,7 @@ let rec pp_sort fmt (ty : t) =
   | S_timestamp -> fprintf fmt "timestamp"
   | S_mutez -> fprintf fmt "mutez"
   | S_address -> fprintf fmt "address"
-  | S_contract ty -> fprintf fmt "(@[contract@ %a@])" pp_sort ty
+  | S_contract -> fprintf fmt "contract"
   | S_operation -> fprintf fmt "operation"
   | S_key -> fprintf fmt "key"
   | S_key_hash -> fprintf fmt "key_hash"
@@ -144,9 +144,7 @@ let rec sort_of_pty (pty : pty) : t iresult =
       | "lambda" ->
           let* s1, s2 = elt2 pl in
           return @@ S_lambda (s1, s2)
-      | "contract" ->
-          let* s = elt1 pl in
-          return @@ S_contract s
+      | "contract" -> return S_contract
       | s -> error_with "unknown sort %s" s)
   | PTtuple [] -> return @@ S_unit
   | PTtuple [ pty ] -> sort_of_pty pty
@@ -184,7 +182,7 @@ let rec pty_of_sort (s : t) : Ptree.pty =
   | S_timestamp -> ty "timestamp"
   | S_mutez -> ty "mutez"
   | S_address -> ty "address"
-  | S_contract s -> PTtyapp (qualid [ "contract" ], [ pty_of_sort s ])
+  | S_contract -> ty "contract"
   | S_operation -> ty "operation"
   | S_key -> ty "key"
   | S_key_hash -> ty "key_hash"

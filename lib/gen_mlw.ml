@@ -43,8 +43,10 @@ let storage_ty_ident = ident "storage"
 let storage_wf_ident = ident "is_storage_wf"
 let gparam_ty_ident = ident "gparam"
 let operation_ty_ident = ident "operation"
+let operation_wf_ident = ident "is_operation_wf"
 let entrypoint_ty_ident = ident "entrypoint"
 let contract_ty_ident = ident "contract"
+let contract_wf_ident = ident "is_contract_wf"
 let gas_ident = ident "g"
 let terminate_ident = ident "Terminate"
 let insufficient_mutez_ident = ident "Insufficient_mutez"
@@ -423,6 +425,7 @@ module Generator (D : Desc) = struct
         PTtyapp (qid entrypoint_ty_ident, []) )
 
   let contract_pty = PTtyapp (qid contract_ty_ident, [])
+  let operation_pty = PTtyapp (qid operation_ty_ident, [])
   let storage_pty_of c = PTtyapp (qid_of c storage_ty_ident, [])
   let qid_param_wf_of (c : contract) : qualid = qid_of c param_wf_ident
   let qid_storage_wf_of (c : contract) : qualid = qid_of c storage_wf_ident
@@ -1423,7 +1426,21 @@ let convert_mlw (tzw : Tzw.t) =
               ] );
         ];
         (* contents of `mlw/step.mlw` *)
-        [ (* type contract = .. *) Dtype [ contract_ty_def ] ];
+        [
+          (* type contract = .. *)
+          Dtype [ contract_ty_def ];
+          (* predicate is_contract_wf (cont : contract) = .. *)
+          Dlogic
+            [
+              {
+                ld_loc = Loc.dummy_position;
+                ld_ident = contract_wf_ident;
+                ld_params = [ mk_param "_cont" G.contract_pty ];
+                ld_type = None;
+                ld_def = Some (term Ttrue);
+              };
+            ];
+        ];
         step;
         [
           Dtype
@@ -1432,6 +1449,16 @@ let convert_mlw (tzw : Tzw.t) =
               gen_gparam epp;
               (* type operation = .. *)
               G.operation_ty_def;
+            ];
+          Dlogic
+            [
+              {
+                ld_loc = Loc.dummy_position;
+                ld_ident = operation_wf_ident;
+                ld_params = [ mk_param "_op" G.operation_pty ];
+                ld_type = None;
+                ld_def = Some (term Ttrue);
+              };
             ];
         ];
         (* contents of [scope Preambles] *)
