@@ -43,8 +43,10 @@ let storage_ty_ident = ident "storage"
 let storage_wf_ident = ident "is_storage_wf"
 let gparam_ty_ident = ident "gparam"
 let operation_ty_ident = ident "operation"
+let operation_wf_ident = ident "is_operation_wf"
 let entrypoint_ty_ident = ident "entrypoint"
 let contract_ty_ident = ident "contract"
+let contract_wf_ident = ident "is_contract_wf"
 let gas_ident = ident "g"
 let terminate_ident = ident "Terminate"
 let insufficient_mutez_ident = ident "Insufficient_mutez"
@@ -420,6 +422,7 @@ module Generator (D : Desc) = struct
         PTtyapp (qid entrypoint_ty_ident, []) )
 
   let contract_pty = PTtyapp (qid contract_ty_ident, [])
+  let operation_pty = PTtyapp (qid operation_ty_ident, [])
   let storage_pty_of c = PTtyapp (qid_of c storage_ty_ident, [])
   let qid_param_wf_of (c : contract) : qualid = qid_of c param_wf_ident
   let qid_storage_wf_of (c : contract) : qualid = qid_of c storage_wf_ident
@@ -1467,11 +1470,36 @@ let convert_mlw (tzw : Tzw.t) =
              }
            in
            Dtype [ contract_ty_def ]);
+          Dlogic
+            [
+              {
+                ld_loc = Loc.dummy_position;
+                ld_ident = contract_wf_ident;
+                ld_params = [ mk_param "cont" G.contract_pty ];
+                ld_type = None;
+                ld_def = Some (term Ttrue);
+              };
+            ];
         ];
         step;
         [
-          Dtype [ (* type gparam = .. *) gen_gparam epp ];
-          Dtype [ (* type operation = .. *) G.operation_ty_def ];
+          Dtype
+            [
+              (* type gparam = .. *)
+              gen_gparam epp;
+              (* type operation = .. *)
+              G.operation_ty_def;
+            ];
+            Dlogic
+            [
+              {
+                ld_loc = Loc.dummy_position;
+                ld_ident = operation_wf_ident;
+                ld_params = [ mk_param "op" G.operation_pty ];
+                ld_type = None;
+                ld_def = Some (term Ttrue);
+              };
+            ];
         ];
         (* Scope Contract .. end *)
         ds;

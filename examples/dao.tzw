@@ -1,0 +1,233 @@
+scope Unknown
+
+  predicate pre (c : ctx) =
+    c.dAO_storage.DAO.voteState = None
+
+  predicate post (_c : ctx) (c' : ctx) =
+    c'.dAO_storage.DAO.voteState = None
+
+  scope Entrypoint
+
+  predicate default unit
+
+  end
+
+end
+
+scope DAO
+
+  (* 
+  type poll = {
+    proposal : lambda unit (list operation),
+    author : address,
+    votingStartBlock : nat
+    votingEndBlock : nat,
+    yayVotes : nat,
+    nayVotes : nat,
+    abstainVotes : nat,
+    totalVotes : nat,
+    voters : set address
+  } *)
+  type storage [@gen_wf] = {
+    poll : option (lambda unit (list operation), address, nat, nat, nat, nat, nat, nat, map address bool);
+    tokenAddress : address; (* FA2 *)
+    escrowAmount : nat; (* poll のための deposit *)
+    voteLength : nat;
+    percentageForSuperMajority : nat;
+    voteState : option (nat, address);
+  }
+
+  predicate pre (_st : step) (_gp : gparam) (_c : ctx) = true
+
+  predicate post (_st : step) (_gp : gparam) (c : ctx) (c' : ctx) = inv_post c c'
+
+  let upper_ops = 3
+
+  scope Spec
+    (*
+    entrypoint propose (proposal)
+    {
+      assert(poll == None)
+      (* endVote を呼ばせるためのインセンティブ && proposal を出せる資格? *)
+      transfer(tokenAddress%transfer, 0, {from = sender, txs = [{to_ = self_address, amount = escrowAmount, token_id=0}]})
+      poll = Some
+        { proposal, author = sender
+          votingStartBlock=level, votingEndBlock = level+voteLength,
+          yayVotes=0, nayVotes=0, abstainVotes=0, totalVotes=0,
+          voters=empty_set}
+    }
+    *)
+    predicate propose
+      (st : step)
+      (proposalLambda : lambda unit (list operation))
+      (s : storage)
+      (ops : list operation)
+      (s' : storage) =
+      ops = Nil /\
+      match s.poll with
+      | None ->
+          let level = level st in
+          let poll = Some (proposalLambda, sender st, level, level + s.voteLength, 0, 0, 0, 0, fun _ -> False) in
+          s = { s' with poll=poll }
+      | Some _ -> False
+      end
+
+    (* 
+    entrypoint endVote ()
+    {
+      assert(is_some(poll))
+      let Some p = poll in
+      assert(p.votingEndBlock < level)
+      totalOpinionatedVotes = p.yayVotes + p.nayVotes
+      (* yayVotesNeededForEscrowReturn = totalOpinionatedVotes * minYayVotesPercentForEscrowReturn / 100 (* 一定の支持を得られなければボッシュート *) *)
+      yayVotesNeededForSuperMajority = totalOpinionatedVotes * percentageForSuperMajority / 100
+      transfer(tokenAddress%transfer, 0, {from = self_address, txs=[{to_=p.sender, amount=escrowAmount, token_id=0}]})
+      if(yayVotesNeededForSuperMajority <= yayVotes (* && quorum <= p.totalVotes *))
+      {
+        p.proposal ()
+      }
+    }
+    *)
+    predicate endVoting
+      (st : step)
+      (_p : unit)
+      (s : storage)
+      (ops : list operation)
+      (s' : storage) =
+      match s.poll with
+      | None -> False
+      | Some (proposal, author, votingStartBlock, votingEndBlock, yayVotes, nayVotes, abstainVotes, totalVotes, voters) ->
+          votingEndBlock < level st /\
+          let totalOpinionatedVotes = yayVotes + nayVotes in
+          let yayVotesNeededForSuperMajority = totalOpinionatedVotes * s.percentageForSuperMajority in
+          let op = Xfer (ICon.Gp (((self st), author, s.escrowAmount) : (address, address, nat))) 0 (ICon.Contract.transfer s.tokenAddress) in
+          ops = if yayVotesNeededForSuperMajority <= yayVotes * 100
+                  then Cons op (proposal ()) (* p.proposal *)
+                  else Cons op Nil
+      end
+
+    (*
+    entrypoint vote (voteValue) (* voteValue... 0 for yay, 1 for nay, 2 for abstain *)
+    {
+      assert(voteState == None)
+      voteState = Some { voteValue, address=sender }
+      transfer((* escrowAddress%getBalance *) tokenAddress%getBalance, 0, { address, callback=voteCallback })
+    }
+     *)
+    predicate vote
+      (st : step)
+      (voteValue : nat)
+      (s : storage)
+      (ops : list operation)
+      (s' : storage) =
+      match s.voteState with
+      | Some _ -> False
+      | None ->
+        let addr = sender st in
+        s'.voteState = Some (voteValue, addr) /\
+        ops = Cons (Xfer (ICon.Gp ((addr, ICon.Contract.voteCallback (self st)) : (address, contract))) 0 (ICon.Contract.getBalance s.tokenAddress)) Nil
+      end
+
+    (*
+    entrypoint voteCallback(balance)
+    {
+      assert (is_some (voteState))
+      assert (is_some (p))
+      let Some vote = voteState in
+      let Some p = poll in
+      assert (level < p.votingEndBlock)
+      if (p.voters.mem(vote.address)) assert false (* 投票済み *)
+      p.voters.add(vote.address)
+      p.totalVotes += balance
+      if (vote.voteValue == 0) p.yayVotes += balance
+      else if (vote.voteValue == 1) p.nayVotes += balance
+      else if (vote.voteValue == 2) p.abstainVotes += balance
+      else assert false
+      poll = Some p
+      voteState = None
+    }
+     *)
+
+    predicate voteCallback
+      (st : step)
+      (p : (nat, address))
+      (s : storage)
+      (ops : list operation)
+      (s' : storage) =
+      let (value, addr) = p in
+      match (s.voteState, s.poll) with
+      | Some (voteValue, addr), Some p ->
+          let (_proposal, _author, _votingStartBlock, votingEndBlock, yayVotes, nayVotes, abstainVotes, totalVotes, voters) = p in
+          level st < votingEndBlock /\
+          voters[addr] /\
+          let totalVotes = totalVotes + value in
+          let yayVotes = if voteValue = 0 then yayVotes + value else yayVotes in
+          let nayVotes = if voteValue = 1 then nayVotes + value else nayVotes in
+          let abstainVotes = if voteValue = 2 then abstainVotes + value else abstainVotes in
+          let voters = voters[addr <- True] in
+          s'.poll = Some (_proposal, _author, _votingStartBlock, votingEndBlock, yayVotes, nayVotes, abstainVotes, totalVotes, voters) /\
+          s'.voteState = None /\
+          ops = Nil
+      | _ -> ops = Nil
+      end
+  end
+
+end
+
+scope Token
+  type storage [@gen_wf] = {
+    balances : map (address) nat;
+    admin : address;
+    approvals : map address (map address nat);
+  }
+
+  predicate pre (_st : step) (_gp : gparam) (_c : ctx) = true
+
+  predicate post (_st : step) (_gp : gparam) (c : ctx) (c' : ctx) = inv_post c c'
+
+  let upper_ops = 2
+
+  scope Spec
+    predicate transfer
+      (st : step)
+      (p : (address, address, nat))
+      (s : storage)
+      (ops : list operation)
+      (s' : storage) =
+      let from_, to_, value = p in
+      let sender = sender st in
+      (from_ = sender \/ sender = s.admin \/ s.approvals[from_][sender] >= value) /\
+      s.balances[from_] >= value /\
+      s'.balances[from_] = s.balances[from_] - value /\
+      s'.balances[to_] = s.balances[to_] + value /\
+      if sender <> s.admin /\ sender <> from_
+      then s'.approvals[from_][sender] + value = s.approvals[from_][sender]
+      else True /\
+      s.admin = s'.admin /\
+      ops = Nil
+
+    predicate getBalance
+      (st : step)
+      (p : (address, contract))
+      (s : storage)
+      (ops : list operation)
+      (s' : storage) =
+      let addr, callback = p in
+      let value = s.balances[addr] in
+      ops = Cons (Xfer (ICon.Gp ((value, addr) : (nat, address))) 0 callback) Nil /\
+      s = s'
+  
+    predicate mint
+      (st : step)
+      (p : (address, nat))
+      (s : storage)
+      (ops : list operation)
+      (s' : storage) =
+      let addr, value = p in
+      sender st = s.admin /\
+      ops = Nil /\
+      let v = s.balances[addr] + value in
+      s' = { s with balances = s.balances[addr <- v] }
+
+  end
+end

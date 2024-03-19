@@ -21,7 +21,8 @@ type t =
   | S_timestamp
   | S_mutez
   | S_address
-  | S_contract of t
+  | S_contract (* Original Michelson receives 1 type argument.
+                  The difference is for the way of transforming code *)
   | S_operation
   | S_key
   | S_key_hash
