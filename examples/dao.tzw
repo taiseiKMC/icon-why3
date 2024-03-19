@@ -1,3 +1,8 @@
+scope Preambles
+  meta "algebraic:kept" type (nat, address)
+  meta "algebraic:kept" type option (nat, address)
+end
+
 scope Unknown
 
   predicate pre (c : ctx) =
@@ -16,20 +21,20 @@ end
 
 scope DAO
 
-  (* 
-  type poll = {
-    proposal : lambda unit (list operation),
-    author : address,
-    votingStartBlock : nat
-    votingEndBlock : nat,
-    yayVotes : nat,
-    nayVotes : nat,
-    abstainVotes : nat,
-    totalVotes : nat,
-    voters : set address
-  } *)
+  type poll [@gen_wf] = {
+    proposal : lambda unit operation; (* lambda unit (list operation) *)
+    author : address;
+    votingStartBlock : nat;
+    votingEndBlock : nat;
+    yayVotes : nat;
+    nayVotes : nat;
+    abstainVotes : nat;
+    totalVotes : nat;
+    voters : map address bool
+  }
+
   type storage [@gen_wf] = {
-    poll : option (lambda unit (list operation), address, nat, nat, nat, nat, nat, nat, map address bool);
+    poll : option poll;
     tokenAddress : address; (* FA2 *)
     escrowAmount : nat; (* poll のための deposit *)
     voteLength : nat;
@@ -59,7 +64,7 @@ scope DAO
     *)
     predicate propose
       (st : step)
-      (proposalLambda : lambda unit (list operation))
+      (proposalLambda : lambda unit operation)
       (s : storage)
       (ops : list operation)
       (s' : storage) =
@@ -67,12 +72,23 @@ scope DAO
       match s.poll with
       | None ->
           let level = level st in
-          let poll = Some (proposalLambda, sender st, level, level + s.voteLength, 0, 0, 0, 0, fun _ -> False) in
+          let poll = Some
+            { proposal = proposalLambda;
+              author = sender st;
+              votingStartBlock = level;
+              votingEndBlock = level + s.voteLength;
+              yayVotes = 0;
+              nayVotes = 0;
+              abstainVotes = 0;
+              totalVotes = 0;
+              voters = fun _ -> False
+            }
+          in
           s = { s' with poll=poll }
       | Some _ -> False
       end
 
-    (* 
+    (*
     entrypoint endVote ()
     {
       assert(is_some(poll))
@@ -96,13 +112,13 @@ scope DAO
       (s' : storage) =
       match s.poll with
       | None -> False
-      | Some (proposal, author, votingStartBlock, votingEndBlock, yayVotes, nayVotes, abstainVotes, totalVotes, voters) ->
-          votingEndBlock < level st /\
-          let totalOpinionatedVotes = yayVotes + nayVotes in
+      | Some poll ->
+          poll.votingEndBlock < level st /\
+          let totalOpinionatedVotes = poll.yayVotes + poll.nayVotes in
           let yayVotesNeededForSuperMajority = totalOpinionatedVotes * s.percentageForSuperMajority in
-          let op = Xfer (ICon.Gp (((self st), author, s.escrowAmount) : (address, address, nat))) 0 (ICon.Contract.transfer s.tokenAddress) in
-          ops = if yayVotesNeededForSuperMajority <= yayVotes * 100
-                  then Cons op (proposal ()) (* p.proposal *)
+          let op = Xfer (ICon.Gp ((self st, poll.author, s.escrowAmount) : (address, address, nat))) 0 (ICon.Contract.transfer s.tokenAddress) in
+          ops = if yayVotesNeededForSuperMajority <= poll.yayVotes * 100
+                  then Cons op (Cons (poll.proposal ()) Nil) (* p.proposal *)
                   else Cons op Nil
       end
 
@@ -125,7 +141,8 @@ scope DAO
       | None ->
         let addr = sender st in
         s'.voteState = Some (voteValue, addr) /\
-        ops = Cons (Xfer (ICon.Gp ((addr, ICon.Contract.voteCallback (self st)) : (address, contract))) 0 (ICon.Contract.getBalance s.tokenAddress)) Nil
+        let callback = ICon.Contract.voteCallback (self st) in
+        ops = Cons (Xfer (ICon.Gp ((addr, callback) : (address, contract))) 0 (ICon.Contract.getBalance s.tokenAddress)) Nil
       end
 
     (*
@@ -156,16 +173,20 @@ scope DAO
       (s' : storage) =
       let (value, addr) = p in
       match (s.voteState, s.poll) with
-      | Some (voteValue, addr), Some p ->
-          let (_proposal, _author, _votingStartBlock, votingEndBlock, yayVotes, nayVotes, abstainVotes, totalVotes, voters) = p in
-          level st < votingEndBlock /\
-          voters[addr] /\
-          let totalVotes = totalVotes + value in
-          let yayVotes = if voteValue = 0 then yayVotes + value else yayVotes in
-          let nayVotes = if voteValue = 1 then nayVotes + value else nayVotes in
-          let abstainVotes = if voteValue = 2 then abstainVotes + value else abstainVotes in
-          let voters = voters[addr <- True] in
-          s'.poll = Some (_proposal, _author, _votingStartBlock, votingEndBlock, yayVotes, nayVotes, abstainVotes, totalVotes, voters) /\
+      | Some (voteValue, addr), Some poll ->
+          level st < poll.votingEndBlock /\
+          poll.voters[addr] /\
+          let totalVotes = poll.totalVotes + value in
+          let yayVotes = if voteValue = 0 then poll.yayVotes + value else poll.yayVotes in
+          let nayVotes = if voteValue = 1 then poll.nayVotes + value else poll.nayVotes in
+          let abstainVotes = if voteValue = 2 then poll.abstainVotes + value else poll.abstainVotes in
+          let voters = poll.voters[addr <- True] in
+          s'.poll = Some
+            { poll with yayVotes=yayVotes
+            ; nayVotes=nayVotes
+            ; abstainVotes=abstainVotes
+            ; totalVotes=totalVotes
+            ; voters=voters } /\
           s'.voteState = None /\
           ops = Nil
       | _ -> ops = Nil
@@ -185,7 +206,7 @@ scope Token
 
   predicate post (_st : step) (_gp : gparam) (c : ctx) (c' : ctx) = inv_post c c'
 
-  let upper_ops = 2
+  let upper_ops = 1
 
   scope Spec
     predicate transfer
