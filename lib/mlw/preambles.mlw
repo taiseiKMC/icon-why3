@@ -31,6 +31,21 @@ predicate is__tuple5_wf
   let (a,b,c,d,e) = abcde in
   is_a_wf a /\ is_b_wf b /\ is_c_wf c /\ is_d_wf d /\ is_e_wf e
 
+predicate is__tuple9_wf
+  (is_a_wf : 'a -> bool)
+  (is_b_wf : 'b -> bool)
+  (is_c_wf : 'c -> bool)
+  (is_d_wf : 'd -> bool)
+  (is_e_wf : 'e -> bool)
+  (is_f_wf : 'f -> bool)
+  (is_g_wf : 'g -> bool)
+  (is_h_wf : 'h -> bool)
+  (is_i_wf : 'i -> bool)
+  (abcdefghi : ('a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i)) =
+  let (a,b,c,d,e,f,g,h,i) = abcdefghi in
+  is_a_wf a /\ is_b_wf b /\ is_c_wf c /\ is_d_wf d /\ is_e_wf e /\
+  is_f_wf f /\ is_g_wf g /\ is_h_wf h /\ is_i_wf i
+
 predicate is_list_wf (_ : 'a -> bool) (_ : list 'a) = true
 
 predicate is_unit_wf (_ : unit) = true
