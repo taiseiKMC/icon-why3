@@ -413,7 +413,12 @@ module Generator (D : Desc) = struct
   let ctx_pty = PTtyapp (qid ctx_ty_ident, [])
   let step_pty = PTtyapp (qid step_ty_ident, [])
   let gparam_pty = PTtyapp (qid gparam_ty_ident, [])
-  let entrypoint_pty = PTtyapp (qid entrypoint_ty_ident, [])
+
+  let entrypoint_pty =
+    PTscope
+      ( Qdot (qid @@ ident "ICon", ident "Contract"),
+        PTtyapp (qid entrypoint_ty_ident, []) )
+
   let contract_pty = PTtyapp (qid contract_ty_ident, [])
   let storage_pty_of c = PTtyapp (qid_of c storage_ty_ident, [])
   let qid_param_wf_of (c : contract) : qualid = qid_of c param_wf_ident
@@ -538,7 +543,6 @@ module Generator (D : Desc) = struct
             let gp = fresh_id () in
             let amt = fresh_id () in
             let dst = fresh_id () in
-            let entp : ident = ident "entp" in
             let+ ctx =
               expr
               @@ Ematch
@@ -548,12 +552,7 @@ module Generator (D : Desc) = struct
                        ( pat
                          @@ Papp
                               ( qualid [ "Xfer" ],
-                                [
-                                  pat_var gp;
-                                  pat_var amt;
-                                  pat_var dst;
-                                  pat_var entp;
-                                ] ),
+                                [ pat_var gp; pat_var amt; pat_var dst ] ),
                          wrap_assume
                            ~assumption:(sort_wf Sort.S_mutez @@ E.mk_var amt)
                          @@ E.mk_if
@@ -731,15 +730,15 @@ module Generator (D : Desc) = struct
               [
                 (Loc.dummy_position, None, false, gparam_pty);
                 (Loc.dummy_position, None, false, Sort.pty_of_sort Sort.S_mutez);
-                ( Loc.dummy_position,
-                  None,
-                  false,
-                  Sort.pty_of_sort Sort.S_address );
-                ( Loc.dummy_position,
-                  None,
-                  false,
-                  PTtyapp (qualid [ "ICon"; "Contract"; "entrypoint" ], []) );
-                (* (Loc.dummy_position, None, false, contract_pty); *)
+                (* ( Loc.dummy_position,
+                     None,
+                     false,
+                     Sort.pty_of_sort Sort.S_address );
+                   ( Loc.dummy_position,
+                     None,
+                     false,
+                     PTtyapp (qualid [ "ICon"; "Contract"; "entrypoint" ], []) ); *)
+                (Loc.dummy_position, None, false, contract_pty);
               ] );
             ( Loc.dummy_position,
               sdel_cstr_ident,
@@ -854,17 +853,13 @@ let sort_of_pty' env pty =
 let gen_gparam_cstr (s : Sort.t) : string =
   Format.sprintf "Gp'0%s" (mangle_sort s)
 
-(** Generate the global parameter constructor name for entrypoint [ep] of type [s] in contract [ct]. *)
-let gen_entrypoint_cstr (ct : string) (ep : string) (_s : Sort.t list) : string
-    =
-  Format.sprintf "Ep'0%s'0%s" ct ep
-
 let entrypoint_qualid epn =
   qualid [ "ICon"; "Contract"; String.capitalize_ascii epn ]
 
 (* ICon.Gp (e : ty) => ICon.Gp.Ty_ty e *)
 module ICon_Gp = struct
-  let convert_term (env : (string * pty) list) (t : term) : term iresult =
+  let convert_term (env : (string * pty) list)
+      (_epp : Sort.t StringMap.t StringMap.t) (t : term) : term iresult =
     let open Ptree_mapper in
     let convert_term mapper term =
       let convert_icon_gp ~loc t =
@@ -898,6 +893,101 @@ module ICon_Gp = struct
                    (term.term_loc, Failure "ICon.Gp takes only 1 argument")))
       | _ -> default_mapper.term mapper term
     in
+
+    let convert_term : Ptree_mapper.mapper -> term -> term =
+      (*
+      let string_of_qident qid =
+        let rec aux qid s =
+          match qid with
+          | Qident id -> id.id_str :: s
+          | Qdot (qid, id) -> aux qid (id.id_str :: s)
+        in
+        let s = aux qid [] in
+        String.concat "." s
+          [@@ocaml.warning "-26"]
+      in
+      *)
+      let convert (sub : Ptree_mapper.mapper) term =
+        let gen_contract _cn ep addr =
+          (*
+          let cn_epp =
+            try StringMap.find cn epp
+            with Not_found ->
+              raise
+              @@ Loc.Located
+                   ( term.term_loc,
+                     Failure (Format.sprintf "%s is not declared" cn) )
+          in
+          *)
+          let ct_ep = Tident (entrypoint_qualid ep) in
+          Trecord
+            [
+              (Qident (ident "ct_ep"), { term with term_desc = ct_ep });
+              (Qident (ident "ct_addr"), sub.term sub addr);
+            ]
+        in
+        let term_desc =
+          match term.term_desc with
+          (*
+          | Tidapp (Qdot (Qident icon, contract), terms)
+            when icon.id_str = "ICon" && contract.id_str = "Contract" ->
+              let cn, ep, addr =
+                match terms with
+                | [ { term_desc = Tident (Qdot (Qident ct, ep)); _ }; addr ] ->
+                    (ct.id_str, ep.id_str, addr)
+                | [ addr ] -> ("Unknown", "default", addr)
+                | _ ->
+                    raise
+                    @@ Loc.Located
+                         ( term.term_loc,
+                           Failure
+                             (Format.sprintf
+                                "The arguments of Icon.Contract is invalid") )
+              in
+              gen_contract cn ep addr
+          *)
+          (*
+             | Tapply
+              ( {
+                  term_desc =
+                    Tapply
+                      ( { term_desc = Tident (Qdot (Qident icon, contract)); _ },
+                        { term_desc = Tident (Qdot (Qident ct, ep)); _ } );
+                  _;
+                },
+                addr )
+                *)
+          | Tapply
+              ( {
+                  term_desc = Tident (Qdot (Qdot (Qident icon, contract), ep));
+                  _;
+                },
+                addr )
+            when icon.id_str = "ICon" && contract.id_str = "Contract" ->
+              Format.eprintf "Debug : Found ICon.Contract \n";
+              gen_contract "Unknown" ep.id_str addr
+          | Tapply
+              ({ term_desc = Tident (Qdot (Qident icon, contract)); _ }, addr)
+            when icon.id_str = "ICon" && contract.id_str = "Contract" ->
+              Format.eprintf "Debug : Found ICon.Contract default : %a \n"
+                Sexplib0.Sexp.pp (Ptree.sexp_of_term addr);
+              gen_contract "Unknown" "default" addr
+          (*
+           | Tidapp (qid, ts) ->
+              Format.eprintf "Debug idapp:%s %a\n" (string_of_qident qid)
+                (Format.pp_print_list Sexplib0.Sexp.pp) (List.map Ptree.sexp_of_term ts);
+              Tidapp (sub.qualid sub qid, List.map (sub.term sub) ts)
+          *)
+          | _ -> (default_mapper.term sub term).term_desc
+        in
+        { term with term_desc }
+      in
+
+      fun mapper term ->
+        let term = convert_term mapper term in
+        convert mapper term
+    in
+
     let convert_pattern mapper p =
       let rec convert_icon_gp ~loc p =
         match p.pat_desc with
@@ -931,6 +1021,7 @@ module ICon_Gp = struct
           )
       | _ -> default_mapper.pattern mapper p
     in
+
     try
       return
       @@ apply_term t
@@ -941,191 +1032,17 @@ module ICon_Gp = struct
            }
     with Loc.Located (loc, Failure s) -> error_with ~loc "%s" s
 
-  let convert_logic_decl sort_env (logic_decl : logic_decl) : logic_decl iresult
-      =
-    let* ld_def = Option.map_e (convert_term sort_env) logic_decl.ld_def in
+  let convert_logic_decl sort_env (epp : Sort.t StringMap.t StringMap.t)
+      (logic_decl : logic_decl) : logic_decl iresult =
+    let* ld_def = Option.map_e (convert_term sort_env epp) logic_decl.ld_def in
     return { logic_decl with ld_def }
 
-  let construct_contract (epp : Sort.t list StringMap.t StringMap.t)
-      (t : Ptree.term) : Ptree.term iresult =
-    let string_of_qident qid =
-      let rec aux qid s =
-        match qid with
-        | Qident id -> id.id_str :: s
-        | Qdot (qid, id) -> aux qid (id.id_str :: s)
-      in
-      let s = aux qid [] in
-      String.concat "." s
-    in
-    let convert (sub : Ptree_mapper.mapper) term =
-      let term_desc =
-        match term.term_desc with
-        | Tidapp (Qdot (Qident icon, contract), terms)
-          when icon.id_str = "Icon" && contract.id_str = "Contract" ->
-            let cn, ep, addr =
-              match terms with
-              | [ { term_desc = Tident (Qdot (Qident ct, ep)); _ }; addr ] ->
-                  (ct.id_str, ep.id_str, addr)
-              | [ addr ] -> ("Unknown", "default", addr)
-              | _ ->
-                  raise
-                  @@ Loc.Located
-                       ( term.term_loc,
-                         Failure
-                           (Format.sprintf
-                              "The arguments of Icon.Contract is invalid") )
-            in
-
-            let cn_epp =
-              try StringMap.find cn epp
-              with Not_found ->
-                raise
-                @@ Loc.Located
-                     ( term.term_loc,
-                       Failure (Format.sprintf "%s is not declared" cn) )
-            in
-            let _s =
-              try StringMap.find ep cn_epp
-              with Not_found ->
-                raise
-                @@ Loc.Located
-                     ( term.term_loc,
-                       Failure (Format.sprintf "%s doesn't have %s" cn ep) )
-            in
-            let ct_ep =
-              Tident (Qident (sub.ident (ident (gen_entrypoint_cstr cn ep _s))))
-            in
-            Trecord
-              [
-                (Qident (ident "ct_ep"), { term with term_desc = ct_ep });
-                (Qident (ident "ct_addr"), sub.term sub addr);
-              ]
-        | Tapply
-            ( {
-                term_desc =
-                  Tapply
-                    ( { term_desc = Tident (Qdot (Qident icon, contract)); _ },
-                      { term_desc = Tident (Qdot (Qident ct, ep)); _ } );
-                _;
-              },
-              addr )
-          when icon.id_str = "Icon" && contract.id_str = "Contract" ->
-            let cn, ep, addr = (ct.id_str, ep.id_str, addr) in
-            let cn_epp =
-              try StringMap.find cn epp
-              with Not_found ->
-                raise
-                @@ Loc.Located
-                     ( term.term_loc,
-                       Failure (Format.sprintf "%s is not declared" cn) )
-            in
-            let _s =
-              try StringMap.find ep cn_epp
-              with Not_found ->
-                raise
-                @@ Loc.Located
-                     ( term.term_loc,
-                       Failure (Format.sprintf "%s doesn't have %s" cn ep) )
-            in
-            let ct_ep =
-              Tident (Qident (sub.ident (ident (gen_entrypoint_cstr cn ep _s))))
-            in
-            Trecord
-              [
-                (Qident (ident "ct_ep"), { term with term_desc = ct_ep });
-                (Qident (ident "ct_addr"), sub.term sub addr);
-              ]
-        | Tapply ({ term_desc = Tident (Qdot (Qident icon, contract)); _ }, addr)
-          when icon.id_str = "Icon" && contract.id_str = "Contract" ->
-            let cn, ep, addr = ("Unknown", "default", addr) in
-            let cn_epp =
-              try StringMap.find cn epp
-              with Not_found ->
-                raise
-                @@ Loc.Located
-                     ( term.term_loc,
-                       Failure (Format.sprintf "%s is not declared" cn) )
-            in
-            let _s =
-              try StringMap.find ep cn_epp
-              with Not_found ->
-                raise
-                @@ Loc.Located
-                     ( term.term_loc,
-                       Failure (Format.sprintf "%s doesn't have %s" cn ep) )
-            in
-            let ct_ep =
-              Tident (Qident (sub.ident (ident (gen_entrypoint_cstr cn ep _s))))
-            in
-            Trecord
-              [
-                (Qident (ident "ct_ep"), { term with term_desc = ct_ep });
-                (Qident (ident "ct_addr"), sub.term sub addr);
-              ]
-        | Ttrue -> Ttrue
-        | Tfalse -> Tfalse
-        | Tconst c -> Tconst c
-        | Tident qid -> Tident (sub.qualid sub qid)
-        | Tasref qid -> Tasref (sub.qualid sub qid)
-        | Tidapp (qid, ts) ->
-            Format.eprintf "Debug idapp:%s \n" (string_of_qident qid);
-            Tidapp (sub.qualid sub qid, List.map (sub.term sub) ts)
-        | Tapply (t1, t2) -> Tapply (sub.term sub t1, sub.term sub t2)
-        | Tinfix (t1, id, t2) ->
-            Tinfix (sub.term sub t1, sub.ident id, sub.term sub t2)
-        | Tinnfix (t1, id, t2) ->
-            Tinnfix (sub.term sub t1, sub.ident id, sub.term sub t2)
-        | Tbinop (t1, bop, t2) -> Tbinop (sub.term sub t1, bop, sub.term sub t2)
-        | Tbinnop (t1, bop, t2) ->
-            Tbinnop (sub.term sub t1, bop, sub.term sub t2)
-        | Tnot t -> Tnot (sub.term sub t)
-        | Tif (t1, t2, t3) ->
-            Tif (sub.term sub t1, sub.term sub t2, sub.term sub t3)
-        | Tquant (qop, binds, trig, t) ->
-            Tquant
-              ( qop,
-                binds,
-                List.map (List.map (sub.term sub)) trig,
-                sub.term sub t )
-        | Teps (id, pty, t) ->
-            Teps (sub.ident id, sub.pty sub pty, sub.term sub t)
-        | Tattr (attr, t) -> Tattr (attr, sub.term sub t)
-        | Tlet (id, t1, t2) ->
-            Tlet (sub.ident id, sub.term sub t1, sub.term sub t2)
-        | Tcase (t, cls) ->
-            Tcase
-              ( sub.term sub t,
-                List.map
-                  (fun (pat, t) -> (sub.pattern sub pat, sub.term sub t))
-                  cls )
-        | Tcast (t, pty) -> Tcast (sub.term sub t, sub.pty sub pty)
-        | Ttuple ts -> Ttuple (List.map (sub.term sub) ts)
-        | Trecord flds ->
-            Trecord
-              (List.map
-                 (fun (qid, t) -> (sub.qualid sub qid, sub.term sub t))
-                 flds)
-        | Tupdate (t, flds) ->
-            Tupdate
-              ( sub.term sub t,
-                List.map
-                  (fun (qid, t) -> (sub.qualid sub qid, sub.term sub t))
-                  flds )
-        | Tscope (qid, t) -> Tscope (sub.qualid sub qid, sub.term sub t)
-        | Tat (t, id) -> Tat (sub.term sub t, sub.ident id)
-      in
-      { term with term_desc }
-    in
-    let open Ptree_mapper in
-    try return @@ apply_term t { default_mapper with term = convert }
-    with Loc.Located (loc, Failure s) -> error_with ~loc "%s" s
-  [@@ocaml.warning "-21"]
-
   (* Only for functions and predicates for now *)
-  let convert_decl sort_env (decl : decl) : decl iresult =
+  let convert_decl sort_env (epp : Sort.t StringMap.t StringMap.t) (decl : decl)
+      : decl iresult =
     match decl with
     | Dlogic lds ->
-        let* lds = List.map_e (convert_logic_decl sort_env) lds in
+        let* lds = List.map_e (convert_logic_decl sort_env epp) lds in
         return @@ Dlogic lds
     | _ -> return decl
 end
@@ -1235,8 +1152,9 @@ let gen_param_wf ep =
 (* meta "algebraic:kept" type <ty> *)
 let gen_meta_algebraic_kept_type ty = Dmeta (ident "algebraic:kept", [ Mty ty ])
 
-let convert_entrypoint sort_env (ep : Tzw.entrypoint) : logic_decl iresult =
-  let* body = ICon_Gp.convert_term sort_env ep.ep_body in
+let convert_entrypoint sort_env (epp : Sort.t StringMap.t StringMap.t)
+    (ep : Tzw.entrypoint) : logic_decl iresult =
+  let* body = ICon_Gp.convert_term sort_env epp ep.ep_body in
   return
     {
       ld_loc = ep.ep_loc;
@@ -1262,7 +1180,7 @@ let convert_contract sort_env (epp : Sort.t StringMap.t StringMap.t)
           let _, _, _, pty = ep.ep_params.epp_param in
           gen_meta_algebraic_kept_type pty
         in
-        let* ep = convert_entrypoint sort_env ep in
+        let* ep = convert_entrypoint sort_env epp ep in
         return @@ (meta :: Dlogic [ ep ] :: tl))
       [] c.c_entrypoints
   in
@@ -1328,6 +1246,7 @@ let gen_gparam (epp : Sort.t StringMap.t StringMap.t) =
     td_def;
   }
 
+(*
 let gen_contract (epp : Sort.t list StringMap.t StringMap.t) =
   let module S = Set.Make (struct
     type t = Loc.position * ident * param list
@@ -1358,6 +1277,7 @@ let gen_contract (epp : Sort.t list StringMap.t StringMap.t) =
     td_wit = None;
     td_def;
   }
+*)
 
 let parse_string s =
   let lexbuf = Lexing.from_string s in
@@ -1419,10 +1339,10 @@ let convert_mlw (tzw : Tzw.t) =
       List.map_e
         (fun (c : Tzw.contract) ->
           let* pre_def =
-            Option.map_e (ICon_Gp.convert_term sort_env) c.c_pre.ld_def
+            Option.map_e (ICon_Gp.convert_term sort_env epp) c.c_pre.ld_def
           in
           let* post_def =
-            Option.map_e (ICon_Gp.convert_term sort_env) c.c_post.ld_def
+            Option.map_e (ICon_Gp.convert_term sort_env epp) c.c_post.ld_def
           in
           return
             [
@@ -1450,10 +1370,14 @@ let convert_mlw (tzw : Tzw.t) =
         tzw.tzw_knowns
     in
     let* pre_def =
-      Option.map_e (ICon_Gp.convert_term sort_env) tzw.tzw_unknown_pre.ld_def
+      Option.map_e
+        (ICon_Gp.convert_term sort_env epp)
+        tzw.tzw_unknown_pre.ld_def
     in
     let* post_def =
-      Option.map_e (ICon_Gp.convert_term sort_env) tzw.tzw_unknown_post.ld_def
+      Option.map_e
+        (ICon_Gp.convert_term sort_env epp)
+        tzw.tzw_unknown_post.ld_def
     in
     return
     @@ Dlogic
@@ -1487,7 +1411,7 @@ let convert_mlw (tzw : Tzw.t) =
     let desc = { d_contracts; d_whyml = [] }
   end) in
   let* postambles =
-    List.map_e (ICon_Gp.convert_decl sort_env) tzw.tzw_postambles
+    List.map_e (ICon_Gp.convert_decl sort_env epp) tzw.tzw_postambles
   in
   let decls =
     List.concat

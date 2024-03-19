@@ -72,7 +72,7 @@ scope Caller
 
     predicate update (_st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
       s' = { s with counter = p } /\
-      ops = Cons (Xfer (ICon.Gp (p : nat)) 0 s.callee_addr ICon.Contract.Oracle) Nil
+      ops = Cons (Xfer (ICon.Gp (p : nat)) 0 (ICon.Contract.oracle s.callee_addr)) Nil
 
     predicate callback (st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
       st.sender = s.callee_addr /\
@@ -97,7 +97,7 @@ scope Callee
 
     predicate oracle (st : step) (p : nat) (s : storage) (ops : list operation) (s' : storage) =
       s' = s /\
-      ops = Cons (Xfer (ICon.Gp (p + 123 : nat)) 0 st.sender ICon.Contract.Callback) Nil
+      ops = Cons (Xfer (ICon.Gp (p + 123 : nat)) 0 (ICon.Contract.callback st.sender)) Nil
 
   end
 
