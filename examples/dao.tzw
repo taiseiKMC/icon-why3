@@ -1,15 +1,40 @@
 scope Preambles
   meta "algebraic:kept" type (nat, address)
   meta "algebraic:kept" type option (nat, address)
+
+
+  type poll [@gen_wf] = {
+    proposal : lambda unit unit; (* lambda unit (list operation) *)
+    author : address;
+    votingStartBlock : nat;
+    votingEndBlock : nat;
+    yayVotes : nat;
+    nayVotes : nat;
+    abstainVotes : nat;
+    totalVotes : nat;
+    voters : map address bool
+  }
+  meta "algebraic:kept" type option poll
+  meta "algebraic:kept" type (option (nat, address), option poll)
+end
+
+scope Postambles
+  predicate addr_inv (c : ctx) =
+    c.dAO_storage.DAO.tokenAddress = Token.addr
+
+  predicate storage_inv (c : ctx) =
+    c.dAO_storage.DAO.voteState = None
 end
 
 scope Unknown
 
   predicate pre (c : ctx) =
-    c.dAO_storage.DAO.voteState = None
+    addr_inv c /\
+    storage_inv c
 
   predicate post (_c : ctx) (c' : ctx) =
-    c'.dAO_storage.DAO.voteState = None
+    addr_inv c' /\
+    storage_inv c'
 
   scope Entrypoint
 
@@ -21,18 +46,6 @@ end
 
 scope DAO
 
-  type poll [@gen_wf] = {
-    proposal : lambda unit operation; (* lambda unit (list operation) *)
-    author : address;
-    votingStartBlock : nat;
-    votingEndBlock : nat;
-    yayVotes : nat;
-    nayVotes : nat;
-    abstainVotes : nat;
-    totalVotes : nat;
-    voters : map address bool
-  }
-
   type storage [@gen_wf] = {
     poll : option poll;
     tokenAddress : address; (* FA2 *)
@@ -42,11 +55,16 @@ scope DAO
     voteState : option (nat, address);
   }
 
-  predicate pre (_st : step) (_gp : gparam) (_c : ctx) = true
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
+    match st.entrypoint, gp with
+    | ICon.Contract.VoteCallback, ICon.Gp (p : (nat, address)) ->
+        st.sender <> Token.addr -> storage_inv c
+    | _ -> storage_inv c
+    end /\ addr_inv c
 
   predicate post (_st : step) (_gp : gparam) (c : ctx) (c' : ctx) = inv_post c c'
 
-  let upper_ops = 3
+  let upper_ops = 2
 
   scope Spec
     (*
@@ -62,7 +80,7 @@ scope DAO
           voters=empty_set}
     }
     *)
-    predicate propose
+    (* predicate propose
       (st : step)
       (proposalLambda : lambda unit operation)
       (s : storage)
@@ -84,9 +102,9 @@ scope DAO
               voters = fun _ -> False
             }
           in
-          s = { s' with poll=poll }
+          s' = { s with poll = poll }
       | Some _ -> False
-      end
+      end *)
 
     (*
     entrypoint endVote ()
@@ -104,7 +122,7 @@ scope DAO
       }
     }
     *)
-    predicate endVoting
+    (* predicate endVoting
       (st : step)
       (_p : unit)
       (s : storage)
@@ -117,10 +135,11 @@ scope DAO
           let totalOpinionatedVotes = poll.yayVotes + poll.nayVotes in
           let yayVotesNeededForSuperMajority = totalOpinionatedVotes * s.percentageForSuperMajority in
           let op = Xfer (ICon.Gp ((self st, poll.author, s.escrowAmount) : (address, address, nat))) 0 (ICon.Contract.transfer s.tokenAddress) in
+          { s with poll = None } = s' /\
           ops = if yayVotesNeededForSuperMajority <= poll.yayVotes * 100
                   then Cons op (Cons (poll.proposal ()) Nil) (* p.proposal *)
                   else Cons op Nil
-      end
+      end *)
 
     (*
     entrypoint vote (voteValue) (* voteValue... 0 for yay, 1 for nay, 2 for abstain *)
@@ -137,12 +156,12 @@ scope DAO
       (ops : list operation)
       (s' : storage) =
       match s.voteState with
-      | Some _ -> False
+      | Some _ -> true
       | None ->
-        let addr = sender st in
-        s'.voteState = Some (voteValue, addr) /\
-        let callback = ICon.Contract.voteCallback (self st) in
-        ops = Cons (Xfer (ICon.Gp ((addr, callback) : (address, contract))) 0 (ICon.Contract.getBalance s.tokenAddress)) Nil
+          let addr = sender st in
+          { s with voteState = Some (voteValue, addr) } = s' /\
+          let callback = ICon.Contract.voteCallback (self st) in
+          ops = Cons (Xfer (ICon.Gp ((addr, callback) : (address, contract))) 0 (ICon.Contract.getBalance s.tokenAddress)) Nil
       end
 
     (*
@@ -181,15 +200,17 @@ scope DAO
           let nayVotes = if voteValue = 1 then poll.nayVotes + value else poll.nayVotes in
           let abstainVotes = if voteValue = 2 then poll.abstainVotes + value else poll.abstainVotes in
           let voters = poll.voters[addr <- True] in
-          s'.poll = Some
-            { poll with yayVotes=yayVotes
-            ; nayVotes=nayVotes
-            ; abstainVotes=abstainVotes
-            ; totalVotes=totalVotes
-            ; voters=voters } /\
-          s'.voteState = None /\
+          let poll =
+            Some
+              { poll with yayVotes = yayVotes
+              ; nayVotes = nayVotes
+              ; abstainVotes = abstainVotes
+              ; totalVotes = totalVotes
+              ; voters = voters }
+          in
+          { s with voteState = None; poll = poll } = s' /\
           ops = Nil
-      | _ -> ops = Nil
+      | _ -> false
       end
   end
 
@@ -202,14 +223,23 @@ scope Token
     approvals : map address (map address nat);
   }
 
-  predicate pre (_st : step) (_gp : gparam) (_c : ctx) = true
+  predicate pre (st : step) (_gp : gparam) (c : ctx) =
+    addr_inv c /\
+    match _gp with
+    | ICon.Gp (p : (address, contract)) ->
+        (st.sender <> DAO.addr -> storage_inv c) /\
+        (st.sender = DAO.addr ->
+          let addr, callback = p in
+          callback = ICon.Contract.voteCallback st.sender)
+    | _ -> false
+    end
 
   predicate post (_st : step) (_gp : gparam) (c : ctx) (c' : ctx) = inv_post c c'
 
   let upper_ops = 1
 
   scope Spec
-    predicate transfer
+    (* predicate transfer
       (st : step)
       (p : (address, address, nat))
       (s : storage)
@@ -218,14 +248,20 @@ scope Token
       let from_, to_, value = p in
       let sender = sender st in
       (from_ = sender \/ sender = s.admin \/ s.approvals[from_][sender] >= value) /\
+      
       s.balances[from_] >= value /\
-      s'.balances[from_] = s.balances[from_] - value /\
-      s'.balances[to_] = s.balances[to_] + value /\
+      let to_balance = s.balances[to_] + value in
+      let b = s.balances[to_ <- to_balance] in
+      let from_balance = s'.balances[from_] + value in
+      let b' = s'.balances[from_ <- from_balance] in
+      b = b' /\
+
       if sender <> s.admin /\ sender <> from_
       then s'.approvals[from_][sender] + value = s.approvals[from_][sender]
       else True /\
       s.admin = s'.admin /\
-      ops = Nil
+      s.approvals = s'.approvals /\
+      ops = Nil *)
 
     predicate getBalance
       (st : step)
@@ -238,7 +274,7 @@ scope Token
       ops = Cons (Xfer (ICon.Gp ((value, addr) : (nat, address))) 0 callback) Nil /\
       s = s'
   
-    predicate mint
+    (* predicate mint
       (st : step)
       (p : (address, nat))
       (s : storage)
@@ -248,7 +284,7 @@ scope Token
       sender st = s.admin /\
       ops = Nil /\
       let v = s.balances[addr] + value in
-      s' = { s with balances = s.balances[addr <- v] }
+      s' = { s with balances = s.balances[addr <- v] } *)
 
   end
 end
