@@ -18,7 +18,7 @@ scope Postambles
         c'.caller_storage.Caller.response = param
     | ICon.Gp (_param : nat), ICon.Contract.Update ->
         cnt_resp_inv c'
-    | _ -> true
+    | _ -> false
     end
 
   predicate pre_callee_inv (st : step) (_gp : gparam) (c : ctx) =
@@ -34,7 +34,7 @@ scope Postambles
           c'.caller_storage.Caller.counter = c.caller_storage.Caller.counter
         else
           cnt_resp_inv c'
-    | _ -> true
+    | _ -> false
     end
 
 end
