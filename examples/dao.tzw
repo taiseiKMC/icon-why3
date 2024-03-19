@@ -4,7 +4,7 @@ scope Preambles
 
 
   type poll [@gen_wf] = {
-    proposal : lambda unit unit; (* lambda unit (list operation) *)
+    proposal : lambda unit operation; (* lambda unit (list operation) *)
     author : address;
     votingStartBlock : nat;
     votingEndBlock : nat;
@@ -80,7 +80,7 @@ scope DAO
           voters=empty_set}
     }
     *)
-    (* predicate propose
+    predicate propose
       (st : step)
       (proposalLambda : lambda unit operation)
       (s : storage)
@@ -104,7 +104,7 @@ scope DAO
           in
           s' = { s with poll = poll }
       | Some _ -> False
-      end *)
+      end
 
     (*
     entrypoint endVote ()
@@ -122,7 +122,7 @@ scope DAO
       }
     }
     *)
-    (* predicate endVoting
+    predicate endVoting
       (st : step)
       (_p : unit)
       (s : storage)
@@ -139,7 +139,7 @@ scope DAO
           ops = if yayVotesNeededForSuperMajority <= poll.yayVotes * 100
                   then Cons op (Cons (poll.proposal ()) Nil) (* p.proposal *)
                   else Cons op Nil
-      end *)
+      end
 
     (*
     entrypoint vote (voteValue) (* voteValue... 0 for yay, 1 for nay, 2 for abstain *)
@@ -223,14 +223,15 @@ scope Token
     approvals : map address (map address nat);
   }
 
-  predicate pre (st : step) (_gp : gparam) (c : ctx) =
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
     addr_inv c /\
-    match _gp with
-    | ICon.Gp (p : (address, contract)) ->
+    match st.entrypoint, gp with
+    | ICon.Contract.GetBalance, ICon.Gp (p : (address, contract)) ->
         (st.sender <> DAO.addr -> storage_inv c) /\
         (st.sender = DAO.addr ->
           let addr, callback = p in
           callback = ICon.Contract.voteCallback st.sender)
+    | ICon.Contract.Transfer, ICon.Gp (p : (address, address, nat)) -> storage_inv c
     | _ -> false
     end
 
@@ -239,7 +240,7 @@ scope Token
   let upper_ops = 1
 
   scope Spec
-    (* predicate transfer
+    predicate transfer
       (st : step)
       (p : (address, address, nat))
       (s : storage)
@@ -256,12 +257,12 @@ scope Token
       let b' = s'.balances[from_ <- from_balance] in
       b = b' /\
 
-      if sender <> s.admin /\ sender <> from_
-      then s'.approvals[from_][sender] + value = s.approvals[from_][sender]
-      else True /\
+      (if sender <> s.admin /\ sender <> from_
+        then s'.approvals[from_][sender] + value = s.approvals[from_][sender]
+        else True) /\
       s.admin = s'.admin /\
       s.approvals = s'.approvals /\
-      ops = Nil *)
+      ops = Nil
 
     predicate getBalance
       (st : step)
