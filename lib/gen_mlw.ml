@@ -424,8 +424,8 @@ module Generator (D : Desc) = struct
   let is_contract_of (c : contract) (e : expr) : expr =
     E.mk_bin e "=" @@ evar @@ qid_of c addr_ident
 
-  let call_param_wf_of (c : contract) (p : expr) : expr =
-    eapp (qid_param_wf_of c) [ p ]
+  let call_param_wf_of (c : contract) (p : expr) (ep : expr) : expr =
+    eapp (qid_param_wf_of c) [ p; ep ]
 
   let call_storage_wf_of (c : contract) (s : expr) : expr =
     eapp (qid_storage_wf_of c) [ s ]
@@ -473,7 +473,11 @@ module Generator (D : Desc) = struct
       (fun _ c e ->
         E.mk_if
           (is_contract_of c @@ Step_constant.self st)
-          (wrap_assume ~assumption:(T.of_expr @@ call_param_wf_of c gp)
+          (wrap_assume
+             ~assumption:
+               (T.of_expr
+               @@ call_param_wf_of c gp (eapp (qualid [ "entrypoint" ]) [ st ])
+               )
           @@ call_func_of c st gp ctx)
           e)
       contracts (call_unknown ctx)
@@ -496,7 +500,8 @@ module Generator (D : Desc) = struct
               @@ E.var_of_binder st;
               call_ctx_wf @@ E.var_of_binder ctx;
               call_step_wf @@ E.var_of_binder st;
-              call_param_wf_of contract @@ E.var_of_binder gparam;
+              call_param_wf_of contract (E.var_of_binder gparam)
+                (eapp (qualid [ "entrypoint" ]) [ E.var_of_binder st ]);
               call_pre_of contract (E.var_of_binder st) (E.var_of_binder gparam)
                 (E.var_of_binder ctx);
             ];
@@ -1017,28 +1022,49 @@ let gen_spec (epp : Sort.t StringMap.t) =
   { ld_loc; ld_ident; ld_params; ld_type; ld_def }
 
 let gen_param_wf ep =
-  let gp : Ptree.param =
+  let gp_param : Ptree.param =
     ( Loc.dummy_position,
       Some (Ptree_helpers.ident "gp"),
       false,
       PTtyapp (Ptree_helpers.qualid [ "gparam" ], []) )
   in
+  let ep_param : Ptree.param =
+    ( Loc.dummy_position,
+      Some (Ptree_helpers.ident "ep"),
+      false,
+      PTscope
+        ( Qdot (qid @@ ident "ICon", ident "Contract"),
+          PTtyapp (qid (ident "entrypoint"), []) ) )
+  in
   let cls =
     StringMap.fold
-      (fun _en (s : Sort.t) cls ->
+      (fun en (s : Sort.t) cls ->
         let p = ident "_p" in
         let param = pat_var p in
         let pred = sort_wf s @@ E.mk_var p in
-        (pat @@ Papp (qualid [ gen_gparam_cstr s ], [ param ]), pred) :: cls)
+        ( pat
+          @@ Ptuple
+               [
+                 pat @@ Papp (qualid [ gen_gparam_cstr s ], [ param ]);
+                 pat @@ Papp (entrypoint_qualid en, []);
+               ],
+          pred )
+        :: cls)
       ep
       [ Ptree_helpers.(pat Pwild, term Tfalse) ]
   in
-  let body = Ptree_helpers.(term @@ Tcase (tvar (qualid [ "gp" ]), cls)) in
+  let body =
+    Ptree_helpers.(
+      term
+      @@ Tcase
+           ( term @@ Ttuple [ tvar (qualid [ "gp" ]); tvar (qualid [ "ep" ]) ],
+             cls ))
+  in
   return
     {
       ld_loc = Loc.dummy_position;
       ld_ident = Ptree_helpers.ident "param_wf";
-      ld_params = [ gp ];
+      ld_params = [ gp_param; ep_param ];
       ld_type = None;
       ld_def = Some body;
     }
