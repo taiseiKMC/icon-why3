@@ -157,7 +157,7 @@ let rec sort_of_pty (pty : pty) : t iresult =
       let* sl = List.map_e sort_of_pty ptys in
       return @@ S_tuple sl
   | PTparen pty -> sort_of_pty pty
-  | _ -> error_with "unknown sort %a" (Mlw_printer.pp_pty ~attr:true).closed pty
+  | _ -> error_with "unknown sort %a" Ptree_printer.pp_pty pty
 
 let rec pty_of_sort (s : t) : Ptree.pty =
   let ty s = PTtyapp (qualid [ s ], []) in

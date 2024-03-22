@@ -3,6 +3,7 @@ open Why3
 open Ptree
 open Ptree_helpers
 open Error_monad
+module StringSet = Set.Make (String)
 
 let fresh_id =
   let count = ref 0 in
@@ -128,8 +129,7 @@ module T = struct
       | Eapply (e1, e2) -> Tapply (of_expr e1, of_expr e2)
       | Eif (e1, e2, e3) -> Tif (of_expr e1, of_expr e2, of_expr e3)
       | _ ->
-          Format.eprintf "T.of_expr: unsupported: %a@."
-            (Mlw_printer.pp_expr ~attr:true).closed e;
+          Format.eprintf "T.of_expr: unsupported: %a@." Ptree_printer.pp_expr e;
           assert false
     in
     { term_desc; term_loc = e.expr_loc }
@@ -204,12 +204,13 @@ module E = struct
 end
 
 module Step_constant = struct
-  let mk source sender self amount balance level now : expr =
+  let mk ~source ~sender ~self ~entrypoint ~amount ~balance ~level ~now : expr =
     E.mk_record
       [
         (qualid [ "source" ], source);
         (qualid [ "sender" ], sender);
         (qualid [ "self" ], self);
+        (qualid [ "entrypoint" ], entrypoint);
         (qualid [ "amount" ], amount);
         (qualid [ "balance" ], balance);
         (qualid [ "level" ], level);
@@ -223,6 +224,7 @@ module Step_constant = struct
   let balance st : expr = eapp (qualid [ "balance" ]) [ st ]
   let level st : expr = eapp (qualid [ "level" ]) [ st ]
   let now st : expr = eapp (qualid [ "now" ]) [ st ]
+  let entrypoint st : expr = eapp (qualid [ "entrypoint" ]) [ st ]
 end
 
 module Is_type_wf = struct
@@ -259,7 +261,7 @@ module Is_type_wf = struct
     | _ ->
         failwith
           (Format.asprintf "is_type_wf: Unsupported type %a"
-             (Mlw_printer.pp_pty ~attr:true).closed pty)
+             Ptree_printer.pp_pty pty)
 
   (* [is_type_wf e] *)
   let gen_apply pty e =
@@ -316,8 +318,7 @@ module Is_type_wf = struct
           in
           return @@ term @@ Tcase (term @@ Tident (qid v_id), cases)
       | _ ->
-          error_with ~loc "Unsupported %a@."
-            (Mlw_printer.pp_decl ~attr:true)
+          error_with ~loc "Unsupported %a@." Ptree_printer.pp_decl
             (Dtype [ type_decl ])
     in
     let v_param : param =
@@ -426,8 +427,8 @@ module Generator (D : Desc) = struct
   let is_contract_of (c : contract) (e : expr) : expr =
     E.mk_bin e "=" @@ evar @@ qid_of c addr_ident
 
-  let call_param_wf_of (c : contract) (p : expr) : expr =
-    eapp (qid_param_wf_of c) [ p ]
+  let call_param_wf_of (c : contract) (p : expr) (ep : expr) : expr =
+    eapp (qid_param_wf_of c) [ p; ep ]
 
   let call_storage_wf_of (c : contract) (s : expr) : expr =
     eapp (qid_storage_wf_of c) [ s ]
@@ -475,7 +476,11 @@ module Generator (D : Desc) = struct
       (fun _ c e ->
         E.mk_if
           (is_contract_of c @@ Step_constant.self st)
-          (wrap_assume ~assumption:(T.of_expr @@ call_param_wf_of c gp)
+          (wrap_assume
+             ~assumption:
+               (T.of_expr
+               @@ call_param_wf_of c gp (eapp (qualid [ "entrypoint" ]) [ st ])
+               )
           @@ call_func_of c st gp ctx)
           e)
       contracts (call_unknown ctx)
@@ -498,8 +503,9 @@ module Generator (D : Desc) = struct
               @@ E.var_of_binder st;
               call_ctx_wf @@ E.var_of_binder ctx;
               call_step_wf @@ E.var_of_binder st;
-              call_param_wf_of contract @@ E.var_of_binder gparam;
-              E.mk_bin
+              call_param_wf_of contract (E.var_of_binder gparam)
+                (eapp (qualid [ "entrypoint" ]) [ E.var_of_binder st ]);
+                              E.mk_bin
                 (Step_constant.balance @@ E.var_of_binder st)
                 "="
                 (E.mk_bin
@@ -543,6 +549,7 @@ module Generator (D : Desc) = struct
             let gp = fresh_id () in
             let amt = fresh_id () in
             let dst = fresh_id () in
+            let entp : ident = ident "entp" in
             let+ ctx =
               expr
               @@ Ematch
@@ -552,7 +559,12 @@ module Generator (D : Desc) = struct
                        ( pat
                          @@ Papp
                               ( qualid [ "Xfer" ],
-                                [ pat_var gp; pat_var amt; pat_var dst ] ),
+                                [
+                                  pat_var gp;
+                                  pat_var amt;
+                                  pat_var dst;
+                                  pat_var entp;
+                                ] ),
                          wrap_assume
                            ~assumption:(sort_wf Sort.S_mutez @@ E.mk_var amt)
                          @@ E.mk_if
@@ -565,10 +577,12 @@ module Generator (D : Desc) = struct
                             let+ st =
                               Step_constant.(
                                 mk
-                                  (source @@ E.var_of_binder st)
-                                  (self @@ E.var_of_binder st)
-                                  (E.mk_var dst) (E.mk_var amt)
-                                  (M.fold
+                                  ~source:(source @@ E.var_of_binder st)
+                                  ~sender:(self @@ E.var_of_binder st)
+                                  ~self:(E.mk_var dst)
+                                  ~entrypoint:(E.mk_var entp)
+                                  ~amount:(E.mk_var amt)
+                                  ~balance:(M.fold
                                      (fun _ c e ->
                                        E.mk_if
                                          (is_contract_of c @@ E.mk_var dst)
@@ -576,8 +590,8 @@ module Generator (D : Desc) = struct
                                             (E.mk_var amt))
                                          e)
                                      contracts (econst 0))
-                                  (level @@ E.var_of_binder st)
-                                  (now @@ E.var_of_binder st))
+                                  ~level:(level @@ E.var_of_binder st)
+                                  ~now:(now @@ E.var_of_binder st))
                             in
                             dispatch_transfer ctx st (E.mk_var gp) );
                      ],
@@ -749,6 +763,10 @@ module Generator (D : Desc) = struct
                   None,
                   false,
                   Sort.pty_of_sort Sort.S_address );
+                ( Loc.dummy_position,
+                  None,
+                  false,
+                  PTtyapp (qualid [ "ICon"; "Contract"; "entrypoint" ], []) );
               ] );
             ( Loc.dummy_position,
               sdel_cstr_ident,
@@ -789,66 +807,177 @@ module Generator (D : Desc) = struct
     List.map (fun (_, c) -> known_contract c) @@ M.bindings contracts
 end
 
-(** Generate the global parameter constructor name for entrypoint [ep] of type [s]. *)
-let gen_gparam_cstr (ep : string) (s : Sort.t list) : string =
+let rec de_qualid = function
+  | Qident id -> [ id ]
+  | Qdot (qid, id) -> de_qualid qid @ [ id ]
+
+(* Match with paths [ICon.Gp.xxx] *)
+let is_icon_gp qid =
+  match de_qualid qid with
+  | [ { id_str = "ICon"; _ }; { id_str = "Gp"; _ } ] -> true
+  | _ -> false
+
+(* Mangle [Sort.t] *)
+let mangle_sort (s : Sort.t) : string =
   let re = Regexp.(compile @@ alt [ char ' '; char '('; char ')'; char ',' ]) in
-  List.map
-    (fun s ->
-      Sort.string_of_sort s
-      |> Regexp.replace re ~f:(fun g ->
-             match Regexp.Group.get g 0 with
-             | " " -> "0"
-             | "(" -> "1"
-             | ")" -> "2"
-             | "," -> "3"
-             | _ -> assert false))
-    s
-  |> String.concat "4"
-  |> Format.sprintf "Gp'0%s'0%s" ep
+  Sort.string_of_sort s
+  |> Regexp.replace re ~f:(fun g ->
+         match Regexp.Group.get g 0 with
+         | " " -> "0"
+         | "(" -> "1"
+         | ")" -> "2"
+         | "," -> "3"
+         | _ -> assert false)
 
-let convert_gparam (epp : Sort.t list StringMap.t StringMap.t) (t : Ptree.term)
-    : Ptree.term iresult =
-  let convert id =
-    match String.split_on_char '\'' id.Ptree.id_str with
-    | "Gp" :: cn_n :: ep_ns ->
-        let ep_n = String.concat "'" ep_ns in
-        let cn =
-          try StringMap.find cn_n epp
-          with Not_found ->
+let rec expand_alias env pty =
+  match pty with
+  | PTtyapp (Qident id, []) -> (
+      match List.assoc_opt id.id_str env with None -> pty | Some pty -> pty)
+  | PTtyapp (qid, ptys) -> PTtyapp (qid, List.map (expand_alias env) ptys)
+  | PTtuple ptys -> PTtuple (List.map (expand_alias env) ptys)
+  | PTref ptys -> PTref (List.map (expand_alias env) ptys)
+  | PTarrow (pty1, pty2) ->
+      PTarrow (expand_alias env pty1, expand_alias env pty2)
+  | PTscope (qid, pty) -> PTscope (qid, expand_alias env pty)
+  | PTparen pty -> PTparen (expand_alias env pty)
+  | PTpure pty -> PTpure (expand_alias env pty)
+  | PTtyvar _ -> pty
+
+(* If a type decl is an alias of a sort, returns the sort *)
+let type_decl_alias_of_sort env type_decl =
+  match (type_decl.td_params, type_decl.td_def) with
+  | [], TDalias pty -> (
+      (* Skip the decl which defines a sort itself, such as
+         [type nat = int]  and  [type address = int]
+      *)
+      match Sort.sort_of_pty (PTtyapp (Qident type_decl.td_ident, [])) with
+      | Ok _ -> None
+      | Error _ -> (
+          let pty = expand_alias env pty in
+          match Sort.sort_of_pty pty with
+          | Ok _sort -> Some ((type_decl.td_ident.id_str, pty) :: env)
+          | Error _ -> None))
+  | _ -> None
+
+let extract_sort_decls decls =
+  List.fold_left
+    (fun env decl ->
+      match decl with
+      | Dtype type_decls ->
+          List.fold_left
+            (fun env type_decl ->
+              match type_decl_alias_of_sort env type_decl with
+              | None -> env
+              | Some env -> env)
+            env type_decls
+      | _ -> env)
+    [] decls
+
+let sort_of_pty' env pty =
+  let pty = expand_alias env pty in
+  Sort.sort_of_pty pty
+
+(** Generate the global parameter constructor name for entrypoint [ep] of type [s]. *)
+let gen_gparam_cstr (s : Sort.t) : string =
+  Format.sprintf "Gp'0%s" (mangle_sort s)
+
+let entrypoint_qualid epn =
+  qualid [ "ICon"; "Contract"; String.capitalize_ascii epn ]
+
+(* ICon.Gp (e : ty) => ICon.Gp.Ty_ty e *)
+module ICon_Gp = struct
+  let convert_term (env : (string * pty) list) (t : term) : term iresult =
+    let open Ptree_mapper in
+    let convert_term mapper term =
+      let convert_icon_gp ~loc t =
+        match t.term_desc with
+        | Tcast (t, pty) -> (
+            match sort_of_pty' env pty with
+            | Error _ ->
+                raise
+                @@ Loc.Located
+                     ( loc,
+                       Failure
+                         (Format.sprintf
+                            "The type is not declared or is not a sort") )
+            | Ok sort ->
+                Ptree_helpers.term
+                  (Tidapp (qualid [ gen_gparam_cstr sort ], [ t ])))
+        | _ ->
             raise
-            @@ Loc.Located
-                 (id.id_loc, Failure (Format.sprintf "%s is not declared" cn_n))
-        in
-        let s =
-          try StringMap.find ep_n cn
-          with Not_found ->
+              (Loc.Located
+                 (loc, Failure "ICon.Gp must take a term with a type constraint"))
+      in
+      match term.term_desc with
+      | Tapply ({ term_desc = Tident qid; _ }, t) when is_icon_gp qid ->
+          convert_icon_gp ~loc:term.term_loc t
+      | Tidapp (qid, ts) when is_icon_gp qid -> (
+          match ts with
+          | [ t ] -> convert_icon_gp ~loc:term.term_loc t
+          | _ ->
+              raise
+                (Loc.Located
+                   (term.term_loc, Failure "ICon.Gp takes only 1 argument")))
+      | _ -> default_mapper.term mapper term
+    in
+    let convert_pattern mapper p =
+      let rec convert_icon_gp ~loc p =
+        match p.pat_desc with
+        | Pcast (p, pty) -> (
+            match sort_of_pty' env pty with
+            | Error _ ->
+                raise
+                @@ Loc.Located
+                     ( loc,
+                       Failure
+                         (Format.sprintf
+                            "The type is not declared or is not a sort") )
+            | Ok sort ->
+                Ptree_helpers.pat
+                  (Papp (qualid [ gen_gparam_cstr sort ], [ p ])))
+        | Pparen p -> convert_icon_gp ~loc p
+        | _ ->
             raise
-            @@ Loc.Located
-                 ( id.id_loc,
-                   Failure (Format.sprintf "%s doesn't have %s" cn_n ep_n) )
-        in
-        { id with id_str = gen_gparam_cstr ep_n s }
-    | _ -> id
-  in
-  let open Ptree_mapper in
-  try return @@ apply_term t { default_mapper with ident = convert }
-  with Loc.Located (loc, Failure s) -> error_with ~loc "%s" s
+              (Loc.Located
+                 ( loc,
+                   Failure "ICon.Gp must take a pattern with a type constraint"
+                 ))
+      in
+      match p.pat_desc with
+      | Papp (qid, ps) when is_icon_gp qid -> (
+          match ps with
+          | [ p ] -> convert_icon_gp ~loc:p.pat_loc p
+          | _ ->
+              raise
+                (Loc.Located (p.pat_loc, Failure "ICon.Gp takes only 1 argument"))
+          )
+      | _ -> default_mapper.pattern mapper p
+    in
+    try
+      return
+      @@ apply_term t
+           {
+             default_mapper with
+             term = convert_term;
+             pattern = convert_pattern;
+           }
+    with Loc.Located (loc, Failure s) -> error_with ~loc "%s" s
 
-let convert_entrypoint (epp : Sort.t list StringMap.t StringMap.t)
-    (ep : Tzw.entrypoint) =
-  let* body = convert_gparam epp ep.ep_body in
-  return
-    {
-      ld_loc = ep.ep_loc;
-      ld_ident = ep.ep_name;
-      ld_params =
-        ep.ep_params.epp_step :: ep.ep_params.epp_old_s :: ep.ep_params.epp_ops
-        :: ep.ep_params.epp_new_s :: ep.ep_params.epp_param;
-      ld_type = None;
-      ld_def = Some body;
-    }
+  let convert_logic_decl sort_env (logic_decl : logic_decl) : logic_decl iresult
+      =
+    let* ld_def = Option.map_e (convert_term sort_env) logic_decl.ld_def in
+    return { logic_decl with ld_def }
 
-let gen_spec (epp : Sort.t list StringMap.t) =
+  (* Only for functions and predicates for now *)
+  let convert_decl sort_env (decl : decl) : decl iresult =
+    match decl with
+    | Dlogic lds ->
+        let* lds = List.map_e (convert_logic_decl sort_env) lds in
+        return @@ Dlogic lds
+    | _ -> return decl
+end
+
+let gen_spec (epp : Sort.t StringMap.t) =
   let st : Ptree.param =
     ( Loc.dummy_position,
       Some (Ptree_helpers.ident "st"),
@@ -890,29 +1019,31 @@ let gen_spec (epp : Sort.t list StringMap.t) =
   in
   let cls =
     StringMap.fold
-      (fun en s cls ->
-        let params =
-          List.mapi
-            (fun i _ ->
-              Ptree_helpers.(pat_var @@ ident @@ Format.sprintf "_p%d" i))
-            s
-        in
-        let args =
-          args
-          @ List.mapi
-              (fun i _ ->
-                Ptree_helpers.(tvar @@ qualid [ Format.sprintf "_p%d" i ]))
-              s
-        in
-        Ptree_helpers.
-          ( pat @@ Papp (qualid [ gen_gparam_cstr en s ], params),
-            tapp (qualid [ "Spec"; en ]) args )
+      (fun en (s : Sort.t) cls ->
+        (* | "entrypoint", Gp'0... _p -> Spec.entrypoint st s op s' _p *)
+        let param = pat_var @@ ident "_p" in
+        let args = args @ [ tvar @@ qualid [ "_p" ] ] in
+        ( pat
+            (Ptuple
+               [
+                 pat @@ Papp (entrypoint_qualid en, []);
+                 pat @@ Papp (qualid [ gen_gparam_cstr s ], [ param ]);
+               ]),
+          tapp (qualid [ "Spec"; en ]) args )
         :: cls)
       epp
-      [ Ptree_helpers.(pat Pwild, term Tfalse) ]
+      [ (pat Pwild, term Tfalse) ]
   in
   let body =
-    Ptree_helpers.term @@ Tcase (Ptree_helpers.(tvar (qualid [ "gp" ])), cls)
+    term
+    @@ Tcase
+         ( term
+             (Ttuple
+                [
+                  T.of_expr (Step_constant.entrypoint (evar @@ qualid [ "st" ]));
+                  tvar (qualid [ "gp" ]);
+                ]),
+           cls )
   in
   let ld_loc = Loc.dummy_position in
   let ld_ident = Ptree_helpers.ident "spec" in
@@ -922,47 +1053,85 @@ let gen_spec (epp : Sort.t list StringMap.t) =
   { ld_loc; ld_ident; ld_params; ld_type; ld_def }
 
 let gen_param_wf ep =
-  let gp : Ptree.param =
+  let gp_param : Ptree.param =
     ( Loc.dummy_position,
       Some (Ptree_helpers.ident "gp"),
       false,
       PTtyapp (Ptree_helpers.qualid [ "gparam" ], []) )
   in
+  let ep_param : Ptree.param =
+    ( Loc.dummy_position,
+      Some (Ptree_helpers.ident "ep"),
+      false,
+      PTscope
+        ( Qdot (qid @@ ident "ICon", ident "Contract"),
+          PTtyapp (qid (ident "entrypoint"), []) ) )
+  in
   let cls =
     StringMap.fold
-      (fun en s cls ->
-        let params, preds =
-          List.mapi
-            (fun i s ->
-              let p = ident @@ Format.sprintf "_p%d" i in
-              (Ptree_helpers.(pat_var p), sort_wf s @@ E.mk_var p))
-            s
-          |> List.split
-        in
-        let pred = List.fold_left T.mk_and Ptree_helpers.(term Ttrue) preds in
-        Ptree_helpers.
-          (pat @@ Papp (qualid [ gen_gparam_cstr en s ], params), pred)
+      (fun en (s : Sort.t) cls ->
+        let p = ident "_p" in
+        let param = pat_var p in
+        let pred = sort_wf s @@ E.mk_var p in
+        ( pat
+          @@ Ptuple
+               [
+                 pat @@ Papp (qualid [ gen_gparam_cstr s ], [ param ]);
+                 pat @@ Papp (entrypoint_qualid en, []);
+               ],
+          pred )
         :: cls)
       ep
       [ Ptree_helpers.(pat Pwild, term Tfalse) ]
   in
-  let body = Ptree_helpers.(term @@ Tcase (tvar (qualid [ "gp" ]), cls)) in
+  let body =
+    Ptree_helpers.(
+      term
+      @@ Tcase
+           ( term @@ Ttuple [ tvar (qualid [ "gp" ]); tvar (qualid [ "ep" ]) ],
+             cls ))
+  in
   return
     {
       ld_loc = Loc.dummy_position;
       ld_ident = Ptree_helpers.ident "param_wf";
-      ld_params = [ gp ];
+      ld_params = [ gp_param; ep_param ];
       ld_type = None;
       ld_def = Some body;
     }
 
-let convert_contract (epp : Sort.t list StringMap.t StringMap.t)
+(* meta "algebraic:kept" type <ty> *)
+let gen_meta_algebraic_kept_type ty = Dmeta (ident "algebraic:kept", [ Mty ty ])
+
+let convert_entrypoint sort_env (ep : Tzw.entrypoint) : logic_decl iresult =
+  let* body = ICon_Gp.convert_term sort_env ep.ep_body in
+  return
+    {
+      ld_loc = ep.ep_loc;
+      ld_ident = ep.ep_name;
+      ld_params =
+        [
+          ep.ep_params.epp_step;
+          ep.ep_params.epp_old_s;
+          ep.ep_params.epp_ops;
+          ep.ep_params.epp_new_s;
+          ep.ep_params.epp_param;
+        ];
+      ld_type = None;
+      ld_def = Some body;
+    }
+
+let convert_contract sort_env (epp : Sort.t StringMap.t StringMap.t)
     (c : Tzw.contract) =
   let* eps =
     List.fold_left_e
-      (fun tl ep ->
-        let* ep = convert_entrypoint epp ep in
-        return @@ (Dlogic [ ep ] :: tl))
+      (fun tl (ep : Tzw.entrypoint) ->
+        let meta =
+          let _, _, _, pty = ep.ep_params.epp_param in
+          gen_meta_algebraic_kept_type pty
+        in
+        let* ep = convert_entrypoint sort_env ep in
+        return @@ (meta :: Dlogic [ ep ] :: tl))
       [] c.c_entrypoints
   in
   let* ep =
@@ -994,7 +1163,8 @@ let convert_contract (epp : Sort.t list StringMap.t StringMap.t)
              Dlogic [ gen_spec (StringMap.find c.c_name.id_str epp) ];
            ] )
 
-let gen_gparam (epp : Sort.t list StringMap.t StringMap.t) =
+(* type gparam = ... | GpUnknown *)
+let gen_gparam (epp : Sort.t StringMap.t StringMap.t) =
   let module S = Set.Make (struct
     type t = Loc.position * ident * param list
 
@@ -1004,15 +1174,13 @@ let gen_gparam (epp : Sort.t list StringMap.t StringMap.t) =
     TDalgebraic
       (S.elements
       @@ StringMap.fold
-           (fun _ ->
-             StringMap.fold (fun en s cstrs ->
+           (fun _ (* contract name *) ->
+             StringMap.fold (fun _en (* entrypoint name *) (s : Sort.t) cstrs ->
                  S.add
                    ( Loc.dummy_position,
-                     Ptree_helpers.ident @@ gen_gparam_cstr en s,
-                     List.map
-                       (fun s ->
-                         (Loc.dummy_position, None, false, Sort.pty_of_sort s))
-                       s )
+                     ident @@ gen_gparam_cstr s,
+                     [ (Loc.dummy_position, None, false, Sort.pty_of_sort s) ]
+                   )
                    cstrs))
            epp
       @@ S.singleton (Loc.dummy_position, ident "GpUnknown", []))
@@ -1034,13 +1202,65 @@ let parse_string s =
 
 let convert_mlw (tzw : Tzw.t) =
   let epp = tzw.tzw_epp in
-  let* ds = List.map_e (convert_contract epp) tzw.tzw_knowns in
+  let* preambles =
+    match parse_string Preambles.preambles with
+    | Decls ds -> return (ds @ tzw.tzw_preambles)
+    | _ -> error_with "invalid prembles: preambles must be list of declarations"
+  in
+  let entrypoint_def =
+    let epns : string list =
+      StringSet.elements
+      @@ StringMap.fold
+           (fun _cn ep acc ->
+             StringMap.fold (fun epn _sort acc -> StringSet.add epn acc) ep acc)
+           tzw.tzw_epp StringSet.empty
+    in
+    let td_def =
+      TDalgebraic
+        (List.map
+           (fun epn ->
+             ( Loc.dummy_position,
+               (match entrypoint_qualid epn with
+               | Qdot (_, id) -> id
+               | _ -> assert false),
+               [] ))
+           epns)
+    in
+    [
+      Dtype
+        [
+          {
+            td_loc = Loc.dummy_position;
+            td_ident = ident "entrypoint";
+            td_params = [];
+            td_vis = Public;
+            td_mut = false;
+            td_inv = [];
+            td_wit = None;
+            td_def;
+          };
+        ];
+    ]
+  in
+  let* step =
+    match parse_string Preambles.step with
+    | Decls ds -> return ds
+    | _ ->
+        error_with
+          "invalid step type definition: step must be list of declarations"
+  in
+  let sort_env = extract_sort_decls preambles in
+  let* ds = List.map_e (convert_contract sort_env epp) tzw.tzw_knowns in
   let* invariants =
     let* lds =
       List.map_e
         (fun (c : Tzw.contract) ->
-          let* pre_def = Option.map_e (convert_gparam epp) c.c_pre.ld_def in
-          let* post_def = Option.map_e (convert_gparam epp) c.c_post.ld_def in
+          let* pre_def =
+            Option.map_e (ICon_Gp.convert_term sort_env) c.c_pre.ld_def
+          in
+          let* post_def =
+            Option.map_e (ICon_Gp.convert_term sort_env) c.c_post.ld_def
+          in
           return
             [
               Dlogic
@@ -1067,10 +1287,10 @@ let convert_mlw (tzw : Tzw.t) =
         tzw.tzw_knowns
     in
     let* pre_def =
-      Option.map_e (convert_gparam epp) tzw.tzw_unknown_pre.ld_def
+      Option.map_e (ICon_Gp.convert_term sort_env) tzw.tzw_unknown_pre.ld_def
     in
     let* post_def =
-      Option.map_e (convert_gparam epp) tzw.tzw_unknown_post.ld_def
+      Option.map_e (ICon_Gp.convert_term sort_env) tzw.tzw_unknown_post.ld_def
     in
     return
     @@ Dlogic
@@ -1100,28 +1320,38 @@ let convert_mlw (tzw : Tzw.t) =
         })
       tzw.tzw_knowns
   in
-  let* preambles =
-    match parse_string Preambles.preambles with
-    | Decls ds -> return (ds @ tzw.tzw_preambles)
-    | _ -> error_with "invalid prembles: preambles must be list of declarations"
-  in
-  let* preambles = Is_type_wf.add_wfs preambles in
   let module G = Generator (struct
     let desc = { d_contracts; d_whyml = [] }
   end) in
+  let* postambles =
+    List.map_e (ICon_Gp.convert_decl sort_env) tzw.tzw_postambles
+  in
   let decls =
     List.concat
       [
         (* contents of [scope Preambles] *)
         preambles;
+        (* scope ICon
+             scope Contract
+               type entrypoint =
+                 | ...
+             end
+           end
+        *)
         [
-          Dtype
-            [
-              (* type gparam = .. *)
-              gen_gparam epp;
-              (* with operation = .. *)
-              G.operation_ty_def;
-            ];
+          Dscope
+            ( Loc.dummy_position,
+              false,
+              ident "ICon",
+              [
+                Dscope
+                  (Loc.dummy_position, false, ident "Contract", entrypoint_def);
+              ] );
+        ];
+        step;
+        [
+          Dtype [ (* type gparam = .. *) gen_gparam epp ];
+          Dtype [ (* type operation = .. *) G.operation_ty_def ];
         ];
         (* Scope Contract .. end *)
         ds;
@@ -1130,7 +1360,7 @@ let convert_mlw (tzw : Tzw.t) =
         (* predicate ctx_wf (ctx: ctx) = .. *)
         [ G.ctx_wf_def ];
         (* contents of [scope Postambles] *)
-        tzw.tzw_postambles;
+        postambles;
         (* inv_pre, inv_post, contract_pre, contract_post *)
         invariants;
         (* let rec ghost unknown g c .. *)

@@ -1,0 +1,31 @@
+type step =
+  { source: address;
+    sender: address;
+    self: address;
+    entrypoint: ICon.Contract.entrypoint; (* type entrypoint must be generated *)
+    amount: mutez;
+    balance: mutez;
+    level: nat;
+    now: timestamp
+  }
+
+function mk_step
+    (source : address)
+    (sender : address)
+    (self : address)
+    (entrypoint : ICon.Contract.entrypoint)
+    (amount : mutez)
+    (balance : mutez)
+    (level : nat)
+    (now : timestamp) : step =
+  { source= source;
+    sender= sender;
+    self= self;
+    entrypoint= entrypoint;
+    amount= amount;
+    balance= balance;
+    level= level;
+    now= now }
+
+predicate step_wf (st : step) =
+  st.amount >= 0

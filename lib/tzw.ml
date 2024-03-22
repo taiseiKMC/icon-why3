@@ -15,7 +15,7 @@ let is_storage_type (pty : Ptree.pty) : bool = is_id_type pty Id.storage_ty
 
 type entrypoint_params = {
   epp_step : param;
-  epp_param : param list;
+  epp_param : param;
   epp_old_s : param;
   epp_new_s : param;
   epp_ops : param;
@@ -41,27 +41,20 @@ type t = {
   tzw_preambles : decl list;
   tzw_postambles : decl list;
   tzw_knowns : contract list;
-  tzw_epp : Sort.t list StringMap.t StringMap.t;
+  tzw_epp : Sort.t StringMap.t StringMap.t;
+      (* contract -> entrypoint -> parameter *)
   tzw_unknown_pre : logic_decl;
   tzw_unknown_post : logic_decl;
 }
 
-(** entrypoint params are "(st : step) (p1 : t1) ... (pn : tn) (s : store) (ops : list operation) (s' : store)", where "t1 ... tn" must be a michelson type. *)
-let parse_entrypoint_params (params : param list) =
+(** entrypoint params are "(st : step) (p : t) (s : store) (ops : list operation) (s' : store)", where "t" must be a michelson type. *)
+let parse_entrypoint_params ~loc (params : param list) =
   let param_loc (l, _, _, _) = l in
   let param_pty (_, _, _, pty) = pty in
-  let* st, params =
+  let* st, param, s, op, s' =
     match params with
-    | x :: xs -> return (x, xs)
-    | _ -> error_with "invalid format: parameters"
-  in
-  let* s, s', op, params =
-    let rec aux params = function
-      | [ s; op; s' ] -> return (s, s', op, List.rev params)
-      | x :: (_ :: _ :: _ :: _ as xs) -> aux (x :: params) xs
-      | _ -> error_with "invalid format: parameters"
-    in
-    aux [] params
+    | [ st; param; s; op; s' ] -> return (st, param, s, op, s')
+    | _ -> error_with ~loc "invalid format: parameters"
   in
   let* () =
     error_unless
@@ -98,23 +91,17 @@ let parse_entrypoint_params (params : param list) =
         (error_of_fmt ~loc:(param_loc op)
            "invalid format: list operation type is expected")
   in
-  let* () =
-    List.fold_left_e
-      (fun () p ->
-        let* _ =
-          trace
-            ~err:
-              (error_of_fmt ~loc:(param_loc p)
-                 "invalid format: Michelson type is expected")
-          @@ Sort.sort_of_pty @@ param_pty p
-        in
-        return ())
-      () params
+  let* _ =
+    trace
+      ~err:
+        (error_of_fmt ~loc:(param_loc param)
+           "invalid format: Michelson type is expected")
+    @@ Sort.sort_of_pty @@ param_pty param
   in
   return
     {
       epp_step = st;
-      epp_param = params;
+      epp_param = param;
       epp_old_s = s;
       epp_new_s = s';
       epp_ops = op;
@@ -123,7 +110,7 @@ let parse_entrypoint_params (params : param list) =
 let parse_entrypoint_pred (ld : logic_decl) : entrypoint iresult =
   let ep_loc = ld.ld_loc in
   let ep_name = ld.ld_ident in
-  let* ep_params = parse_entrypoint_params ld.ld_params in
+  let* ep_params = parse_entrypoint_params ~loc:ld.ld_loc ld.ld_params in
   let* () =
     error_unless (ld.ld_type = None)
       ~err:(error_of_fmt ~loc:ep_loc "invalid format: predicate is expected")
@@ -134,6 +121,7 @@ let parse_entrypoint_pred (ld : logic_decl) : entrypoint iresult =
   in
   return { ep_loc; ep_name; ep_params; ep_body }
 
+(* Parse [scope Spec predicate entry_point ... end] *)
 let parse_entrypoint_scope (lds : decl list) =
   List.fold_left_e
     (fun tl d ->
@@ -219,8 +207,7 @@ let parse_contract loc id ds =
         | Dlogic _ -> return (ostore, okont, oeps, opre, opost)
         | decl ->
             error_with ~loc "@[<2>unexpected declaration:@ %a@]"
-              (Mlw_printer.pp_decl ~attr:true)
-              decl)
+              Ptree_printer.pp_decl decl)
       (None, None, None, None, None)
       ds
   in
@@ -258,16 +245,17 @@ let parse_contract loc id ds =
     { c_name = id; c_entrypoints; c_num_kont; c_pre; c_post; c_other_decls }
 
 let parse_unknown (loc : Loc.position) (ds : decl list) =
-  let parse_entrypoint_type (ds : decl list) =
+  let parse_entrypoint_type (ds : Ptree.decl list) : Sort.t StringMap.t iresult
+      =
     List.fold_left_e
       (fun m -> function
         | Dlogic [ ld ] ->
-            let* s =
-              List.map_e
-                (fun (loc, _, _, pty) ->
+            let* (s : Sort.t) =
+              match ld.ld_params with
+              | [ (loc, _, _, pty) ] ->
                   trace ~err:(error_of_fmt ~loc "Michelson type is expected")
-                  @@ Sort.sort_of_pty pty)
-                ld.ld_params
+                  @@ Sort.sort_of_pty pty
+              | _ -> error_with ~loc:ld.ld_loc "Michelson type is expected"
             in
             return @@ StringMap.add ld.ld_ident.id_str s m
         | _ ->
@@ -347,11 +335,8 @@ let parse_mlw (mlw : mlw_file) =
         let* epp =
           List.fold_left_e
             (fun m ep ->
-              let* s =
-                List.map_e
-                  (fun (_, _, _, pty) -> Sort.sort_of_pty pty)
-                  ep.ep_params.epp_param
-              in
+              let _, _, _, pty = ep.ep_params.epp_param in
+              let* s = Sort.sort_of_pty pty in
               return @@ StringMap.add ep.ep_name.id_str s m)
             StringMap.empty c.c_entrypoints
         in
