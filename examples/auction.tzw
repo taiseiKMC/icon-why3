@@ -62,12 +62,12 @@ scope Auction
 
   predicate withdraw (st : step) (_p : unit) (s : storage) (ops : list operation) (s' : storage) =
     s' = { s with pending_returns = s.pending_returns[st.sender <- 0] } /\
-    ops = Cons (Xfer (Gp'Unknown'default ()) s.pending_returns[st.sender] st.sender) Nil
+    ops = Cons (Xfer (ICon.Gp (() : unit)) s.pending_returns[st.sender] st.sender ICon.Contract.Default) Nil
 
   predicate end_auction (_st : step) (_p : unit) (s : storage) (ops : list operation) (s' : storage) =
     not s.ended /\
     s' = { s with ended = true } /\
-    ops = Cons (Xfer (Gp'Unknown'default ()) s.highest_bid s.beneficiary) Nil
+    ops = Cons (Xfer (ICon.Gp (() : unit)) s.highest_bid s.beneficiary ICon.Contract.Default) Nil
 
   end
 
