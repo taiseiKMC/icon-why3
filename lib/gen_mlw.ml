@@ -505,7 +505,7 @@ module Generator (D : Desc) = struct
               call_step_wf @@ E.var_of_binder st;
               call_param_wf_of contract (E.var_of_binder gparam)
                 (eapp (qualid [ "entrypoint" ]) [ E.var_of_binder st ]);
-                              E.mk_bin
+              E.mk_bin
                 (Step_constant.balance @@ E.var_of_binder st)
                 "="
                 (E.mk_bin
@@ -582,14 +582,15 @@ module Generator (D : Desc) = struct
                                   ~self:(E.mk_var dst)
                                   ~entrypoint:(E.mk_var entp)
                                   ~amount:(E.mk_var amt)
-                                  ~balance:(M.fold
-                                     (fun _ c e ->
-                                       E.mk_if
-                                         (is_contract_of c @@ E.mk_var dst)
-                                         (E.mk_bin (balance_of c ctx) "+"
-                                            (E.mk_var amt))
-                                         e)
-                                     contracts (econst 0))
+                                  ~balance:
+                                    (M.fold
+                                       (fun _ c e ->
+                                         E.mk_if
+                                           (is_contract_of c @@ E.mk_var dst)
+                                           (E.mk_bin (balance_of c ctx) "+"
+                                              (E.mk_var amt))
+                                           e)
+                                       contracts (econst 0))
                                   ~level:(level @@ E.var_of_binder st)
                                   ~now:(now @@ E.var_of_binder st))
                             in
