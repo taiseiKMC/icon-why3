@@ -1203,10 +1203,10 @@ let parse_string s =
 
 let convert_mlw (tzw : Tzw.t) =
   let epp = tzw.tzw_epp in
-  let* preambles =
-    match parse_string Preambles.preambles with
-    | Decls ds -> return (ds @ tzw.tzw_preambles)
-    | _ -> error_with "invalid prembles: preambles must be list of declarations"
+  let* headers =
+    match parse_string Headers.headers with
+    | Decls ds -> return ds
+    | _ -> error_with "invalid headers: headers must be list of declarations"
   in
   let entrypoint_def =
     let epns : string list =
@@ -1244,13 +1244,17 @@ let convert_mlw (tzw : Tzw.t) =
     ]
   in
   let* step =
-    match parse_string Preambles.step with
+    match parse_string Headers.step with
     | Decls ds -> return ds
     | _ ->
         error_with
           "invalid step type definition: step must be list of declarations"
   in
-  let sort_env = extract_sort_decls preambles in
+  let sort_env = extract_sort_decls headers in
+  let* preambles =
+    List.map_e (ICon_Gp.convert_decl sort_env) tzw.tzw_preambles
+  in
+  let* preambles = Is_type_wf.add_wfs preambles in
   let* ds = List.map_e (convert_contract sort_env epp) tzw.tzw_knowns in
   let* invariants =
     let* lds =
@@ -1330,8 +1334,8 @@ let convert_mlw (tzw : Tzw.t) =
   let decls =
     List.concat
       [
-        (* contents of [scope Preambles] *)
-        preambles;
+        (* contents of `mlw/headers.mlw` *)
+        headers;
         (* scope ICon
              scope Contract
                type entrypoint =
@@ -1349,11 +1353,14 @@ let convert_mlw (tzw : Tzw.t) =
                   (Loc.dummy_position, false, ident "Contract", entrypoint_def);
               ] );
         ];
+        (* contents of `mlw/step.mlw` *)
         step;
         [
           Dtype [ (* type gparam = .. *) gen_gparam epp ];
           Dtype [ (* type operation = .. *) G.operation_ty_def ];
         ];
+        (* contents of [scope Preambles] *)
+        preambles;
         (* Scope Contract .. end *)
         ds;
         (* type ctx = .. *)
