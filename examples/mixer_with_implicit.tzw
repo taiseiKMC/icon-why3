@@ -73,29 +73,30 @@ scope Mixer
 
   predicate pre (st : step) (gp : gparam) (c : ctx) =
     storage_inv c /\
-    match gp with
-    | Gp'Mixer'withdraw key passcode ->
+    match st.entrypoint with
+    | ICon.Contract.Withdraw ->
         (st.sender <> Splitter.addr -> splitter_storage_inv c) /\
         (st.sender = Splitter.addr -> st.amount = 0)
-    | Gp'Mixer'deposit _ _ -> splitter_storage_inv c
+    | ICon.Contract.Deposit -> splitter_storage_inv c
     | _ -> false
     end
 
   predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
     storage_inv c' /\
     splitter_storage_inv c' /\
-    match gp with
-    | Gp'Mixer'withdraw key passcode ->
+    match st.entrypoint, gp with
+    | ICon.Contract.Withdraw, ICon.Gp ((key, passcode) : (bytes, bytes)) ->
         c.splitter_storage.Splitter.state = Some (Cons Implicit0.addr Nil) ->
         mixer_balance_cond key passcode c c'
-    | Gp'Mixer'deposit _ _ -> true
+    | ICon.Contract.Deposit, _ -> true
     | _ -> false
     end
 
   let upper_ops = 1
 
   scope Spec
-    predicate deposit (st : step) (key : bytes) (hash : bytes) (s : storage) (ops : list operation) (s' : storage) =
+    predicate deposit (st : step) (p : (bytes, bytes)) (s : storage) (ops : list operation) (s' : storage) =
+      let (key, hash) = p in
       match s.balances[key] with
       | None ->
           let b = s.balances[key <- Some (hash, st.amount)] in
@@ -110,16 +111,17 @@ scope Mixer
       end /\
       ops = Nil
 
-    predicate withdraw (st : step) (key : bytes) (passcode : bytes) (s : storage) (ops : list operation) (s' : storage) =
+    predicate withdraw (st : step) (p : (bytes, bytes)) (s : storage) (ops : list operation) (s' : storage) =
+      let (key, passcode) = p in
       let b = s.balances in
-      let xfer_nothing = s' = s /\ ops = Cons (Xfer (Gp'Unknown'default ()) 0 st.sender) Nil in
+      let xfer_nothing = s' = s /\ ops = Cons (Xfer (ICon.Gp (() : unit)) 0 st.sender ICon.Contract.Default) Nil in
       match b[key] with
       | None -> xfer_nothing
       | Some (hash, token) ->
           if sha256 (concat key passcode) = hash
           then
             s' = { s with balances = b[key <- None] } /\
-            ops = Cons (Xfer (Gp'Unknown'default ()) token st.sender) Nil
+            ops = Cons (Xfer (ICon.Gp (() : unit)) token st.sender ICon.Contract.Default) Nil
           else
             xfer_nothing
       end
@@ -136,11 +138,11 @@ scope Splitter
 
   predicate pre (st : step) (gp : gparam) (c : ctx) =
     storage_inv c /\
-    match gp with
-    | Gp'Splitter'split key passcode dests ->
+    match st.entrypoint, gp with
+    | ICon.Contract.Split, ICon.Gp ((key, passcode, dests) : (bytes, bytes, list address)) ->
         splitter_storage_inv c /\
         (st.sender = Implicit0.addr -> dests = Cons Implicit0.addr Nil)
-    | Gp'Splitter'default () ->
+    | ICon.Contract.Default, _ ->
         st.sender <> Mixer.addr -> splitter_storage_inv c
     | _ -> false
     end
@@ -148,11 +150,11 @@ scope Splitter
   predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
     storage_inv c' /\
     splitter_storage_inv c' /\
-    match gp with
-    | Gp'Splitter'split key passcode dests ->
+    match st.entrypoint, gp with
+    | ICon.Contract.Split, ICon.Gp ((key, passcode, dests) : (bytes, bytes, list address)) ->
         st.sender = Implicit0.addr ->
         mixer_balance_cond key passcode c c'
-    | Gp'Splitter'default () ->
+    | ICon.Contract.Default, ICon.Gp (() : unit) ->
         (c.splitter_storage.Splitter.state = Some (Cons Implicit0.addr Nil) \/
          c.splitter_storage.Splitter.state = None) ->
         (c.mixer_balance = c'.mixer_balance /\
@@ -163,8 +165,9 @@ scope Splitter
   let upper_ops = 3
 
   scope Spec
-    predicate split (st : step) (key : bytes) (passcode : bytes) (dests : list address) (s : storage) (ops : list operation) (s' : storage) =
-      ops = Cons (Xfer (Gp'Mixer'withdraw key passcode) 0 s.mixer_addr) Nil /\
+    predicate split (st : step) (p : (bytes, bytes, list address)) (s : storage) (ops : list operation) (s' : storage) =
+      let (key, passcode, dests) = p in
+      ops = Cons (Xfer (ICon.Gp ((key, passcode) : (bytes, bytes))) 0 s.mixer_addr ICon.Contract.Withdraw) Nil /\
       s'.state = Some dests /\
       s.mixer_addr = s'.mixer_addr
 
@@ -180,14 +183,14 @@ scope Splitter
             match dests with
             | Nil -> Nil
             | Cons addr0 t ->
-                Cons (Xfer (Gp'Unknown'default ()) d addr0)
+                Cons (Xfer (ICon.Gp (() : unit)) d addr0 ICon.Contract.Default)
                   (match dests with
                   | Nil -> Nil
                   | Cons addr1 t ->
-                      Cons (Xfer (Gp'Unknown'default ()) d addr1)
+                      Cons (Xfer (ICon.Gp (() : unit)) d addr1 ICon.Contract.Default)
                         (match dests with
                         | Nil -> Nil
-                        | Cons addr2 _ -> Cons (Xfer (Gp'Unknown'default ()) d addr2) Nil
+                        | Cons addr2 _ -> Cons (Xfer (ICon.Gp (() : unit)) d addr2 ICon.Contract.Default) Nil
                         end)
                   end)
             end /\
@@ -201,19 +204,19 @@ scope Implicit0
   predicate pre (st : step) (gp : gparam) (c : ctx) =
     storage_inv c /\
     splitter_storage_inv c /\
-    match gp with
-    | Gp'Implicit0'send _ _
-    | Gp'Implicit0'default () -> true
+    match st.entrypoint with
+    | ICon.Contract.Send
+    | ICon.Contract.Default -> true
     | _ -> false
     end
 
   predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
     storage_inv c' /\
     splitter_storage_inv c' /\
-    match gp with
-    | Gp'Implicit0'send key passcode ->
+    match st.entrypoint, gp with
+    | ICon.Contract.Send, ICon.Gp ((key, passcode) : (bytes, bytes)) ->
         mixer_balance_cond key passcode c c'
-    | Gp'Implicit0'default () ->
+    | ICon.Contract.Default, ICon.Gp (() : unit) ->
         c.mixer_balance = c'.mixer_balance /\
         c.mixer_storage = c'.mixer_storage
     | _ -> false
@@ -224,8 +227,9 @@ scope Implicit0
   let upper_ops = 1
 
   scope Spec
-    predicate send (st : step) (key : bytes) (passcode : bytes) (s : storage) (ops : list operation) (s' : storage) =
-      ops = Cons (Xfer (Gp'Splitter'split key passcode (Cons st.self Nil)) 0 Splitter.addr) Nil
+    predicate send (st : step) (p : (bytes, bytes)) (s : storage) (ops : list operation) (s' : storage) =
+      let (key, passcode) = p in
+      ops = Cons (Xfer (ICon.Gp ((key, passcode, (Cons st.self Nil)) : (bytes, bytes, list address))) 0 Splitter.addr ICon.Contract.Split) Nil
     
     predicate default (st : step) (_p : unit) (s : storage) (ops : list operation) (s' : storage) =
       ops = Nil
