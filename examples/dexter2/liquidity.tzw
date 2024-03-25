@@ -103,8 +103,8 @@ scope Cpmm
     s'.lqt_address = s.lqt_address /\
     let lqt_minted = s'.lqt_total - s.lqt_total in
     match op with
-    | Cons (Xfer (ICon.Gp (_ : list (address, (list (address, (nat, nat)))))) _ _ ICon.Contract.Transfer)
-            (Cons (Xfer (ICon.Gp ((q, _) : (int, address))) _ lqc ICon.Contract.MintOrBurn)
+    | Cons (Xfer (ICon.Gp (_ : list (address, (list (address, (nat, nat)))))) _ { ct_ep=ICon.Contract.Transfer; ct_addr=_ })
+            (Cons (Xfer (ICon.Gp ((q, _) : (int, address))) _ { ct_ep=ICon.Contract.MintOrBurn; ct_addr=lqc })
 	     Nil) ->
       q = lqt_minted /\
       lqc = s.lqt_address
@@ -118,9 +118,9 @@ scope Cpmm
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total - lqt_burned /\
     match op with
-    | Cons (Xfer (ICon.Gp ( (q, _) : (int, address) )) _ lqc ICon.Contract.MintOrBurn)
-      (Cons (Xfer (ICon.Gp ( _ : list (address, list (address, (nat, nat))))) _ _ ICon.Contract.Transfer)
-      (Cons (Xfer (ICon.Gp ( _ : unit)) _ _ ICon.Contract.Default)
+    | Cons (Xfer (ICon.Gp ( (q, _) : (int, address) )) _ { ct_ep=ICon.Contract.MintOrBurn; ct_addr=lqc })
+      (Cons (Xfer (ICon.Gp ( _ : list (address, list (address, (nat, nat))))) _ { ct_ep=ICon.Contract.Transfer; ct_addr=_ })
+      (Cons (Xfer (ICon.Gp ( _ : unit)) _ { ct_ep=ICon.Contract.Default; ct_addr=_ })
        Nil)) ->
       q = 0 - lqt_burned /\
       lqc = s.lqt_address
@@ -131,7 +131,7 @@ scope Cpmm
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total /\
     match op with
-     | Cons (Xfer (ICon.Gp (_ : list (address, list (address, (nat, nat))))) _ _ ICon.Contract.Transfer) Nil ->
+     | Cons (Xfer (ICon.Gp (_ : list (address, list (address, (nat, nat))))) _ { ct_ep=ICon.Contract.Transfer; ct_addr=_ }) Nil ->
       True
     | _ -> False
     end
@@ -140,8 +140,8 @@ scope Cpmm
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total /\
     match op with
-    | Cons (Xfer (ICon.Gp (_ : list (address, (list (address, (nat, nat)))))) _ _ ICon.Contract.Transfer)
-            (Cons (Xfer (ICon.Gp (_ : unit)) _ _ ICon.Contract.Default)
+    | Cons (Xfer (ICon.Gp (_ : list (address, (list (address, (nat, nat)))))) _ { ct_ep=ICon.Contract.Transfer; ct_addr=_ })
+            (Cons (Xfer (ICon.Gp (_ : unit)) _ { ct_ep=ICon.Contract.Default; ct_addr=_ })
                    Nil) ->
       True
     | _ -> False
@@ -151,8 +151,8 @@ scope Cpmm
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total /\
     match op with
-    | Cons (Xfer (ICon.Gp (_ : list (address, (list (address, (nat, nat)))))) _ _ ICon.Contract.Transfer)
-           (Cons (Xfer (ICon.Gp (_ : (address, nat, timestamp))) _ _ ICon.Contract.Xtz_to_token)
+    | Cons (Xfer (ICon.Gp (_ : list (address, (list (address, (nat, nat)))))) _ { ct_ep=ICon.Contract.Transfer; ct_addr=_ })
+           (Cons (Xfer (ICon.Gp (_ : (address, nat, timestamp))) _ { ct_ep=ICon.Contract.Xtz_to_token; ct_addr=_ })
 	    Nil) ->
       True
     | _ -> False
@@ -182,7 +182,7 @@ scope Cpmm
     s'.lqt_address = s.lqt_address /\
     s'.lqt_total = s.lqt_total /\
     match op with
-    | Cons (Xfer (ICon.Gp (_ : unit)) _ _ ICon.Contract.Update_token_pool) Nil ->
+    | Cons (Xfer (ICon.Gp (_ : unit)) _ { ct_ep=ICon.Contract.Update_token_pool; ct_addr=_ }) Nil ->
       True
     | _ -> False
     end
@@ -258,39 +258,39 @@ scope Lqt
     let maybe_new_balance = if new_balance = 0 then None else Some new_balance in
     s'.tokens = s.tokens[target <- maybe_new_balance]
 
-  predicate getAllowance (_st : step) (p : ((address, address), contract nat)) (s : storage) (op : list operation) (s' : storage) =
+  predicate getAllowance (_st : step) (p : ((address, address), contract)) (s : storage) (op : list operation) (s' : storage) =
     let (_p1, p2) = p in
     let callback = p2 in
     s'.total_supply = s.total_supply /\
     s'.admin = s.admin /\
     s'.tokens = s.tokens /\
     match op with
-    | Cons (Xfer _ _ c ICon.Contract.Default) Nil ->
-      c = callback
+    | Cons (Xfer _ _ c) Nil ->
+      c = callback /\ c.ct_ep = ICon.Contract.Default
     | _ -> False
     end
 
-  predicate getBalance (_st : step) (p : (address, contract nat)) (s : storage) (op : list operation) (s' : storage) =
+  predicate getBalance (_st : step) (p : (address, contract)) (s : storage) (op : list operation) (s' : storage) =
     let (_p1, p2) = p in
     let callback = p2 in
     s'.total_supply = s.total_supply /\
     s'.admin = s.admin /\
     s'.tokens = s.tokens /\
     match op with
-    | Cons (Xfer _ _ c ICon.Contract.Default) Nil ->
-      c = callback
+    | Cons (Xfer _ _ c) Nil ->
+      c = callback /\ c.ct_ep = ICon.Contract.Default
     | _ -> False
     end
 
-  predicate getTotalSupply (_st : step) (p : (unit, contract nat)) (s : storage) (op : list operation) (s' : storage) =
+  predicate getTotalSupply (_st : step) (p : (unit, contract)) (s : storage) (op : list operation) (s' : storage) =
     let (_p1, p2) = p in
     let callback = p2 in
     s'.total_supply = s.total_supply /\
     s'.admin = s.admin /\
     s'.tokens = s.tokens /\
     match op with
-    | Cons (Xfer _ _ c ICon.Contract.Default) Nil ->
-      c = callback
+    | Cons (Xfer _ _ c) Nil ->
+      c = callback /\ c.ct_ep = ICon.Contract.Default
     | _ -> False
     end
 
