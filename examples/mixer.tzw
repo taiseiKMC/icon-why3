@@ -88,10 +88,10 @@ scope Mixer
           if sha256 (concat key passcode) = hash
           then
             s' = { s with balances = b[key <- None] } /\
-            ops = Cons (Xfer (ICon.Gp (() : unit)) token st.sender ICon.Contract.Default) Nil
+            ops = Cons (Xfer (ICon.Gp (() : unit)) token (ICon.Contract st.sender)) Nil
           else
             s' = s /\
-            ops = ops = Cons (Xfer (ICon.Gp (() : unit)) 0 st.sender ICon.Contract.Default) Nil
+            ops = ops = Cons (Xfer (ICon.Gp (() : unit)) 0 (ICon.Contract st.sender)) Nil
       end
   end
 
@@ -122,7 +122,7 @@ scope Splitter
   scope Spec
     predicate split (st : step) (p : (bytes, bytes, list address)) (s : storage) (ops : list operation) (s' : storage) =
       let key, passcode, dests = p in
-      ops = Cons (Xfer (ICon.Gp ((key, passcode) : (bytes, bytes))) 0 s.mixer_addr ICon.Contract.Withdraw) Nil /\
+      ops = Cons (Xfer (ICon.Gp ((key, passcode) : (bytes, bytes))) 0 (ICon.Contract.Withdraw s.mixer_addr)) Nil /\
       s'.state = Some dests /\
       s.mixer_addr = s'.mixer_addr
     
@@ -134,7 +134,7 @@ scope Splitter
           s' = s
       | Some dests ->
           let d = div st.amount (length dests) in
-          let c_op addr = Xfer (ICon.Gp (() : unit)) d addr ICon.Contract.Default in
+          let c_op addr = Xfer (ICon.Gp (() : unit)) d (ICon.Contract addr) in
           (* ops = map c_op dests /\ *)
           ops = (* Extract 3 times *)
             match dests with

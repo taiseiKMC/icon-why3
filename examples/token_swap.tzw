@@ -89,8 +89,8 @@ scope Swap
       let (a_addr, a_token_id, a_amount, b_addr, b_token_id, b_amount) = p in
       a_addr <> self st /\
       b_addr <> self st /\
-      let op0 = Xfer (ICon.Gp ((a_addr, b_addr, a_token_id, a_amount) : (address, address, nat, nat))) 0 Token0.addr ICon.Contract.Transfer in
-      let op1 = Xfer (ICon.Gp ((b_addr, a_addr, b_token_id, b_amount) : (address, address, nat, nat))) 0 Token1.addr ICon.Contract.Transfer in
+      let op0 = Xfer (ICon.Gp ((a_addr, b_addr, a_token_id, a_amount) : (address, address, nat, nat))) 0 (ICon.Contract.Transfer Token0.addr) in
+      let op1 = Xfer (ICon.Gp ((b_addr, a_addr, b_token_id, b_amount) : (address, address, nat, nat))) 0 (ICon.Contract.Transfer Token1.addr) in
       ops = Cons op0 (Cons op1 Nil)
 
   end

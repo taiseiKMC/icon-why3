@@ -114,14 +114,14 @@ scope Mixer
     predicate withdraw (st : step) (p : (bytes, bytes)) (s : storage) (ops : list operation) (s' : storage) =
       let (key, passcode) = p in
       let b = s.balances in
-      let xfer_nothing = s' = s /\ ops = Cons (Xfer (ICon.Gp (() : unit)) 0 st.sender ICon.Contract.Default) Nil in
+      let xfer_nothing = s' = s /\ ops = Cons (Xfer (ICon.Gp (() : unit)) 0 (ICon.Contract st.sender)) Nil in
       match b[key] with
       | None -> xfer_nothing
       | Some (hash, token) ->
           if sha256 (concat key passcode) = hash
           then
             s' = { s with balances = b[key <- None] } /\
-            ops = Cons (Xfer (ICon.Gp (() : unit)) token st.sender ICon.Contract.Default) Nil
+            ops = Cons (Xfer (ICon.Gp (() : unit)) token (ICon.Contract st.sender)) Nil
           else
             xfer_nothing
       end
@@ -167,7 +167,7 @@ scope Splitter
   scope Spec
     predicate split (st : step) (p : (bytes, bytes, list address)) (s : storage) (ops : list operation) (s' : storage) =
       let (key, passcode, dests) = p in
-      ops = Cons (Xfer (ICon.Gp ((key, passcode) : (bytes, bytes))) 0 s.mixer_addr ICon.Contract.Withdraw) Nil /\
+      ops = Cons (Xfer (ICon.Gp ((key, passcode) : (bytes, bytes))) 0 (ICon.Contract.Withdraw s.mixer_addr)) Nil /\
       s'.state = Some dests /\
       s.mixer_addr = s'.mixer_addr
 
@@ -183,14 +183,14 @@ scope Splitter
             match dests with
             | Nil -> Nil
             | Cons addr0 t ->
-                Cons (Xfer (ICon.Gp (() : unit)) d addr0 ICon.Contract.Default)
+                Cons (Xfer (ICon.Gp (() : unit)) d (ICon.Contract addr0))
                   (match dests with
                   | Nil -> Nil
                   | Cons addr1 t ->
-                      Cons (Xfer (ICon.Gp (() : unit)) d addr1 ICon.Contract.Default)
+                      Cons (Xfer (ICon.Gp (() : unit)) d (ICon.Contract addr1))
                         (match dests with
                         | Nil -> Nil
-                        | Cons addr2 _ -> Cons (Xfer (ICon.Gp (() : unit)) d addr2 ICon.Contract.Default) Nil
+                        | Cons addr2 _ -> Cons (Xfer (ICon.Gp (() : unit)) d (ICon.Contract addr2)) Nil
                         end)
                   end)
             end /\
@@ -229,7 +229,7 @@ scope Implicit0
   scope Spec
     predicate send (st : step) (p : (bytes, bytes)) (s : storage) (ops : list operation) (s' : storage) =
       let (key, passcode) = p in
-      ops = Cons (Xfer (ICon.Gp ((key, passcode, (Cons st.self Nil)) : (bytes, bytes, list address))) 0 Splitter.addr ICon.Contract.Split) Nil
+      ops = Cons (Xfer (ICon.Gp ((key, passcode, (Cons st.self Nil)) : (bytes, bytes, list address))) 0 (ICon.Contract.Split Splitter.addr)) Nil
     
     predicate default (st : step) (_p : unit) (s : storage) (ops : list operation) (s' : storage) =
       ops = Nil
