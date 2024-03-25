@@ -58,10 +58,10 @@ scope Swap
 
   predicate pre (st : step) (gp : gparam) (c : ctx) = Token0.addr <> Token1.addr
 
-  predicate post (_st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+  predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
     balances_invariant c c' /\
-    match gp with
-    | Gp'Swap'swap a_addr a_token_id a_amount b_addr b_token_id b_amount ->
+    match st.entrypoint, gp with
+    | ICon.Contract.Swap, ICon.Gp ((a_addr, a_token_id, a_amount, b_addr, b_token_id, b_amount) : (address, nat, nat, address, nat, nat)) ->
         c.token0_storage.Token0.operators[a_token_id][a_addr][Swap.addr] /\
         c.token1_storage.Token1.operators[b_token_id][b_addr][Swap.addr] /\
         ( let balances = c.token0_storage.Token0.balances in
@@ -82,19 +82,15 @@ scope Swap
   scope Spec
     predicate swap
       (st : step)
-      (a_addr : address)
-      (a_token_id : nat)
-      (a_amount : nat)
-      (b_addr : address)
-      (b_token_id : nat)
-      (b_amount : nat)
+      (p : (address, nat, nat, address, nat, nat))
       (s : storage)
       (ops : list operation)
       (s' : storage) =
+      let (a_addr, a_token_id, a_amount, b_addr, b_token_id, b_amount) = p in
       a_addr <> self st /\
       b_addr <> self st /\
-      let op0 = Xfer (Gp'Token0'transfer a_addr b_addr a_token_id a_amount) 0 Token0.addr in
-      let op1 = Xfer (Gp'Token1'transfer b_addr a_addr b_token_id b_amount) 0 Token1.addr in
+      let op0 = Xfer (ICon.Gp ((a_addr, b_addr, a_token_id, a_amount) : (address, address, nat, nat))) 0 Token0.addr ICon.Contract.Transfer in
+      let op1 = Xfer (ICon.Gp ((b_addr, a_addr, b_token_id, b_amount) : (address, address, nat, nat))) 0 Token1.addr ICon.Contract.Transfer in
       ops = Cons op0 (Cons op1 Nil)
 
   end
@@ -112,15 +108,15 @@ scope Token0
   predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
     balances_invariant c c' /\
     c.token1_storage = c'.token1_storage /\
-    match gp with
-    | Gp'Token0'transfer from_ to_ token_id amount ->
+    match st.entrypoint, gp with
+    | ICon.Contract.Transfer, ICon.Gp ((from_, to_, token_id, amount) : (address, address, nat, nat)) ->
         ( from_ = sender st \/ c.token0_storage.Token0.operators[token_id][from_][sender st]) /\
           let balances = c.token0_storage.Token0.balances in
           let balances' = c'.token0_storage.Token0.balances in
           let b, b' = update_balance from_ to_ token_id amount balances balances' in
           b = b' /\
           c.token0_storage.Token0.operators = c'.token0_storage.Token0.operators
-    | Gp'Token0'update_operators _ ->
+    | ICon.Contract.Update_operators, _ ->
         c.token0_storage.Token0.balances = c'.token0_storage.Token0.balances
     | _ -> false
     end
@@ -131,13 +127,11 @@ scope Token0
 
     predicate transfer
       (st : step)
-      (from_ : address)
-      (to_ : address)
-      (token_id : nat)
-      (amount : nat)
+      (p : (address, address, nat, nat))
       (s : storage)
       (ops : list operation)
       (s' : storage) =
+        let (from_, to_, token_id, amount) = p in
         let sender = sender st in
         (from_ = sender \/ s.operators[token_id][from_][sender]) /\
         s.balances[token_id][from_] >= amount /\
@@ -179,15 +173,15 @@ scope Token1
   predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
     balances_invariant c c' /\
     c.token0_storage = c'.token0_storage /\
-    match gp with
-    | Gp'Token1'transfer from_ to_ token_id amount ->
+    match st.entrypoint, gp with
+    | ICon.Contract.Transfer, ICon.Gp ((from_, to_, token_id, amount): (address, address, nat, nat)) ->
         ( from_ = sender st \/ c.token1_storage.Token1.operators[token_id][from_][sender st]) /\
           let balances = c.token1_storage.Token1.balances in
           let balances' = c'.token1_storage.Token1.balances in
           let b, b' = update_balance from_ to_ token_id amount balances balances' in
           b = b' /\
           c.token1_storage.Token1.operators = c'.token1_storage.Token1.operators
-    | Gp'Token1'update_operators _ ->
+    | ICon.Contract.Update_operators, _ ->
         c.token1_storage.Token1.balances = c'.token1_storage.Token1.balances
     | _ -> false
     end
@@ -198,13 +192,11 @@ scope Token1
 
     predicate transfer
       (st : step)
-      (from_ : address)
-      (to_ : address)
-      (token_id : nat)
-      (amount : nat)
+      (p : (address, address, nat, nat))
       (s : storage)
       (ops : list operation)
       (s' : storage) =
+        let (from_, to_, token_id, amount)= p in
         let sender = sender st in
         (from_ = sender \/ s.operators[token_id][from_][sender]) /\
         s.balances[token_id][from_] >= amount /\
