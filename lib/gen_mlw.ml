@@ -1356,8 +1356,13 @@ let convert_mlw (tzw : Tzw.t) =
         (* contents of `mlw/step.mlw` *)
         step;
         [
-          Dtype [ (* type gparam = .. *) gen_gparam epp ];
-          Dtype [ (* type operation = .. *) G.operation_ty_def ];
+          Dtype
+            [
+              (* type gparam = .. *)
+              gen_gparam epp;
+              (* type operation = .. *)
+              G.operation_ty_def;
+            ];
         ];
         (* contents of [scope Preambles] *)
         preambles;
