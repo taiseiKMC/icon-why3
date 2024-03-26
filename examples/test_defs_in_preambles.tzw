@@ -9,8 +9,8 @@ scope Preambles
     (s : a_storage)
     (ops : list operation)
     (v : nat) : list operation =
-    let ops = Cons (Xfer (ICon.Gp (v : nat)) 0 s.self_address ICon.Contract.Add) ops in
-    let ops = Cons (Xfer (ICon.Gp (v : nat)) 0 s.self_address ICon.Contract.Add) ops in
+    let ops = Cons (Xfer (ICon.Gp (v : nat)) 0 (ICon.Contract.add s.self_address)) ops in
+    let ops = Cons (Xfer (ICon.Gp (v : nat)) 0 (ICon.Contract.add s.self_address)) ops in
     ops
 
 end
