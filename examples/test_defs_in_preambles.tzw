@@ -1,0 +1,82 @@
+scope Preambles
+
+  type a_storage [@gen_wf] = {
+    self_address : address;
+    counter : nat;
+  }
+
+  function add_double
+    (s : a_storage)
+    (ops : list operation)
+    (v : nat) : list operation =
+    let ops = Cons (Xfer (ICon.Gp (v : nat)) 0 s.self_address ICon.Contract.Add) ops in
+    let ops = Cons (Xfer (ICon.Gp (v : nat)) 0 s.self_address ICon.Contract.Add) ops in
+    ops
+
+end
+
+scope Postambles
+
+  predicate addr_inv (c : ctx) =
+    c.a_storage.self_address = A.addr
+
+  predicate inv (c : ctx) =
+    addr_inv c /\ mod c.a_storage.counter 4 = 0
+
+end
+
+scope Unknown
+
+  predicate pre (c : ctx) = inv c
+
+  predicate post (_c : ctx) (c' : ctx) = inv c'
+
+  scope Entrypoint
+
+  predicate default unit
+
+  end
+
+end
+
+scope A
+
+  type storage [@gen_wf] = a_storage
+
+  predicate pre (st : step) (gp : gparam) (c : ctx) =
+    match gp, st.entrypoint with
+    | _, ICon.Contract.Add -> addr_inv c
+    | _, _ -> inv c
+    end
+
+  predicate post (st : step) (gp : gparam) (c : ctx) (c' : ctx) =
+    match gp, st.entrypoint with
+    | ICon.Gp (v:nat), ICon.Contract.Add ->
+        st.sender = A.addr /\
+        let s = c.a_storage in
+        let s' = c'.a_storage in
+        s' = { s with counter = s.counter + v }
+    | _, _ -> inv c'
+    end
+
+  let upper_ops = 4
+
+  scope Spec
+
+    predicate add (st : step)
+      (param : nat)
+      (s : storage) (ops : list operation) (s' : storage) =
+      st.sender = st.self /\
+      s' = { s with counter = s.counter + param } /\
+      ops = Nil
+
+    predicate add_four_times (_st : step)
+      (param : nat)
+      (s : storage) (ops : list operation) (s' : storage) =
+      s' = s /\
+      let nops = Nil in
+      let nops = add_double s nops param in
+      let nops = add_double s nops param in
+      ops = nops
+  end
+end
